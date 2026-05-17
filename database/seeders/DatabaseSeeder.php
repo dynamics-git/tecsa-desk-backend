@@ -26,6 +26,8 @@ class DatabaseSeeder extends Seeder
 
         $this->call(SupportReferenceDataSeeder::class);
         $this->call(SupportTicketSeeder::class);
+        $this->call(SupportAccessControlDemoSeeder::class);
+        $this->call(SupportSuperAdminSeeder::class);
     }
 
     /**
@@ -38,6 +40,7 @@ class DatabaseSeeder extends Seeder
             ['name' => 'Priya', 'email' => 'priya@example.com', 'password' => 'password'],
             ['name' => 'Mei Lin', 'email' => 'mei.lin@example.com', 'password' => 'password'],
             ['name' => 'Sarah', 'email' => 'sarah@example.com', 'password' => 'password'],
+            ['name' => 'Jason Lee', 'email' => 'jason.lee@example.com', 'password' => 'password'],
         ];
     }
 }

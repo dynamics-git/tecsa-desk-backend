@@ -1,16 +1,21 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AuthPasswordController;
 use App\Http\Controllers\Api\Setup\CategoryController;
 use App\Http\Controllers\Api\Setup\CustomerController;
 use App\Http\Controllers\Api\Setup\MacroController;
 use App\Http\Controllers\Api\Setup\QueueController;
 use App\Http\Controllers\Api\Setup\SlaPolicyController;
+use App\Http\Controllers\Api\Setup\SupportPermissionRoleController;
+use App\Http\Controllers\Api\Setup\SupportUserScopeController;
 use App\Http\Controllers\Api\Setup\TeamController;
 use App\Http\Controllers\Api\Setup\UserController;
+use App\Http\Controllers\Api\Setup\CustomerUserAccessController;
 use App\Http\Controllers\Api\SupportAttachmentController;
 use App\Http\Controllers\Api\SupportReferenceDataController;
 use App\Http\Controllers\Api\SupportTicketController;
+use App\Http\Controllers\Api\UserSecuritySettingsController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function (): void {
@@ -18,6 +23,16 @@ Route::prefix('auth')->group(function (): void {
     Route::post('/login', [AuthController::class, 'login']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/password-policy', [AuthPasswordController::class, 'passwordPolicy']);
+    Route::post('/password/forgot', [AuthPasswordController::class, 'forgotPassword'])->middleware('throttle:6,1');
+    Route::post('/password/reset', [AuthPasswordController::class, 'resetPassword'])->middleware('throttle:10,1');
+});
+
+Route::middleware('api.token')->prefix('auth')->group(function (): void {
+    Route::patch('/password-policy', [AuthPasswordController::class, 'updatePasswordPolicy']);
+    Route::post('/password/generate', [AuthPasswordController::class, 'generatePassword']);
+    Route::post('/password/set-by-admin', [AuthPasswordController::class, 'setByAdmin']);
+    Route::post('/password/change', [AuthPasswordController::class, 'changePassword']);
 });
 
 Route::middleware('api.token')->prefix('setup')->group(function (): void {
@@ -28,6 +43,9 @@ Route::middleware('api.token')->prefix('setup')->group(function (): void {
     Route::apiResource('queues', QueueController::class);
     Route::apiResource('sla-policies', SlaPolicyController::class);
     Route::apiResource('macros', MacroController::class);
+    Route::apiResource('permission-roles', SupportPermissionRoleController::class);
+    Route::apiResource('customer-user-access', CustomerUserAccessController::class);
+    Route::apiResource('support-user-scope', SupportUserScopeController::class);
 });
 
 Route::get('support/attachments', [SupportAttachmentController::class, 'index']);
@@ -48,4 +66,9 @@ Route::prefix('support/tickets')->group(function (): void {
     Route::post('/bulk/priority', [SupportTicketController::class, 'bulkPriority']);
     Route::post('/{id}/reply', [SupportTicketController::class, 'reply']);
     Route::post('/{id}/forward', [SupportTicketController::class, 'forward']);
+});
+
+Route::middleware('api.token')->group(function (): void {
+    Route::get('users/{id}/security-settings', [UserSecuritySettingsController::class, 'show']);
+    Route::patch('users/{id}/security-settings', [UserSecuritySettingsController::class, 'update']);
 });

@@ -18,11 +18,11 @@ final readonly class SupportTicketService
     /**
      * @param  array<string, mixed>  $query
      */
-    public function list(array $query): PaginatedTicketsDto
+    public function list(array $query, ?CurrentUser $currentUser = null): PaginatedTicketsDto
     {
         $page = (int) ($query['page'] ?? 1);
         $pageSize = (int) ($query['pageSize'] ?? 20);
-        $records = $this->tickets->search($query, $query['sort'] ?? null);
+        $records = $this->tickets->search($query, $query['sort'] ?? null, $currentUser);
         $pageItems = array_slice($records, ($page - 1) * $pageSize, $pageSize);
 
         return new PaginatedTicketsDto(
@@ -33,9 +33,9 @@ final readonly class SupportTicketService
         );
     }
 
-    public function detail(string $id): ?TicketDetailDto
+    public function detail(string $id, ?CurrentUser $currentUser = null): ?TicketDetailDto
     {
-        $ticket = $this->tickets->find($id);
+        $ticket = $this->tickets->find($id, $currentUser);
 
         return $ticket === null ? null : TicketDetailDto::fromArray($ticket);
     }

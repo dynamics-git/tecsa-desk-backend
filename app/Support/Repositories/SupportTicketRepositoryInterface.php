@@ -11,12 +11,12 @@ interface SupportTicketRepositoryInterface
      * @param  array<string, mixed>  $filters
      * @return array<int, array<string, mixed>>
      */
-    public function search(array $filters, ?string $sort): array;
+    public function search(array $filters, ?string $sort, ?CurrentUser $currentUser = null): array;
 
     /**
      * @return array<string, mixed>|null
      */
-    public function find(string $id): ?array;
+    public function find(string $id, ?CurrentUser $currentUser = null): ?array;
 
     /**
      * @param  array<string, mixed>  $payload

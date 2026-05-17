@@ -11,15 +11,22 @@ use App\Http\Requests\Support\ForwardTicketRequest;
 use App\Http\Requests\Support\ListAttachmentsRequest;
 use App\Http\Requests\Support\ListTicketsRequest;
 use App\Http\Requests\Support\ReplyToTicketRequest;
+use App\Models\SupportTicket;
+use App\Models\User;
+use App\Support\Auth\CurrentUser;
 use App\Support\Auth\CurrentUserResolver;
+use App\Support\Auth\SupportAccessResolver;
 use App\Support\Services\SupportTicketService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 final class SupportTicketController extends Controller
 {
     public function __construct(
         private readonly SupportTicketService $supportTickets,
         private readonly CurrentUserResolver $currentUserResolver,
+        private readonly SupportAccessResolver $supportAccessResolver,
     ) {}
 
     /**
@@ -35,7 +42,10 @@ final class SupportTicketController extends Controller
      */
     public function index(ListTicketsRequest $request): JsonResponse
     {
-        return response()->json($this->supportTickets->list($request->validated())->toArray());
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('viewAny', SupportTicket::class);
+
+        return response()->json($this->supportTickets->list($request->validated(), $currentUser)->toArray());
     }
 
     /**
@@ -45,9 +55,17 @@ final class SupportTicketController extends Controller
      */
     public function store(CreateTicketRequest $request): JsonResponse
     {
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+
+        if (! $this->supportAccessResolver->canCreateTicket($currentUser, (string) $request->input('customer'))) {
+            return response()->json([
+                'message' => 'Customer scope does not allow ticket creation for this account.',
+            ], 403);
+        }
+
         return response()->json($this->supportTickets->create(
             payload: $request->validated(),
-            currentUser: $this->currentUserResolver->fromRequestOrFallback($request),
+            currentUser: $currentUser,
         ), 201);
     }
 
@@ -62,9 +80,17 @@ final class SupportTicketController extends Controller
      *   summary="Get support ticket detail"
      * )
      */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
-        $ticket = $this->supportTickets->detail($id);
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
+        $ticket = $this->supportTickets->detail($id, $currentUser);
 
         return $ticket === null
             ? response()->json(['message' => 'Ticket not found.'], 404)
@@ -76,8 +102,16 @@ final class SupportTicketController extends Controller
      *
      * Returns linked internal tasks created from this ticket.
      */
-    public function linkedTasks(string $id): JsonResponse
+    public function linkedTasks(Request $request, string $id): JsonResponse
     {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
         $tasks = $this->supportTickets->linkedTasks($id);
 
         return $tasks === null
@@ -92,6 +126,14 @@ final class SupportTicketController extends Controller
      */
     public function attachments(string $id, ListAttachmentsRequest $request): JsonResponse
     {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
         $attachments = $this->supportTickets->ticketAttachments($id, $request->validated());
 
         return $attachments === null
@@ -113,11 +155,20 @@ final class SupportTicketController extends Controller
     public function bulkAssign(BulkAssignTicketsRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        $policyUser = $this->policyUser($currentUser);
+        Gate::forUser($policyUser)->authorize('bulkUpdate', SupportTicket::class);
+
+        $tickets = SupportTicket::query()->whereIn('id', array_unique($data['ticketIds']))->get();
+
+        foreach ($tickets as $ticket) {
+            Gate::forUser($policyUser)->authorize('assign', $ticket);
+        }
 
         return response()->json($this->supportTickets->assign(
             ticketIds: $data['ticketIds'],
             agent: $data['agent'],
-            currentUser: $this->currentUserResolver->fromRequestOrFallback($request),
+            currentUser: $currentUser,
         ));
     }
 
@@ -135,11 +186,20 @@ final class SupportTicketController extends Controller
     public function bulkStatus(BulkUpdateStatusRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        $policyUser = $this->policyUser($currentUser);
+        Gate::forUser($policyUser)->authorize('bulkUpdate', SupportTicket::class);
+
+        $tickets = SupportTicket::query()->whereIn('id', array_unique($data['ticketIds']))->get();
+
+        foreach ($tickets as $ticket) {
+            Gate::forUser($policyUser)->authorize('changeStatus', $ticket);
+        }
 
         return response()->json($this->supportTickets->updateStatus(
             ticketIds: $data['ticketIds'],
             status: $data['status'],
-            currentUser: $this->currentUserResolver->fromRequestOrFallback($request),
+            currentUser: $currentUser,
         ));
     }
 
@@ -157,11 +217,20 @@ final class SupportTicketController extends Controller
     public function bulkPriority(BulkUpdatePriorityRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        $policyUser = $this->policyUser($currentUser);
+        Gate::forUser($policyUser)->authorize('bulkUpdate', SupportTicket::class);
+
+        $tickets = SupportTicket::query()->whereIn('id', array_unique($data['ticketIds']))->get();
+
+        foreach ($tickets as $ticket) {
+            Gate::forUser($policyUser)->authorize('changePriority', $ticket);
+        }
 
         return response()->json($this->supportTickets->updatePriority(
             ticketIds: $data['ticketIds'],
             priority: $data['priority'],
-            currentUser: $this->currentUserResolver->fromRequestOrFallback($request),
+            currentUser: $currentUser,
         ));
     }
 
@@ -178,6 +247,18 @@ final class SupportTicketController extends Controller
      */
     public function reply(string $id, ReplyToTicketRequest $request): JsonResponse
     {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize(
+            $request->boolean('isInternalNote') ? 'internalNote' : 'reply',
+            $record,
+        );
+
         $data = $request->validated();
         $result = $this->supportTickets->reply(
             id: $id,
@@ -186,7 +267,7 @@ final class SupportTicketController extends Controller
             attachmentIds: $data['attachmentIds'] ?? [],
             parentActivityId: $data['parentActivityId'] ?? null,
             mentions: $data['mentions'] ?? [],
-            currentUser: $this->currentUserResolver->fromRequestOrFallback($request),
+            currentUser: $currentUser,
         );
 
         return $result === null
@@ -207,14 +288,50 @@ final class SupportTicketController extends Controller
      */
     public function forward(string $id, ForwardTicketRequest $request): JsonResponse
     {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('forward', $record);
+
         $result = $this->supportTickets->forward(
             id: $id,
             payload: $request->validated(),
-            currentUser: $this->currentUserResolver->fromRequestOrFallback($request),
+            currentUser: $currentUser,
         );
 
         return $result === null
             ? response()->json(['message' => 'Ticket not found.'], 404)
             : response()->json($result);
+    }
+
+    private function policyUser(CurrentUser $currentUser): User
+    {
+        $user = null;
+
+        if (ctype_digit($currentUser->id)) {
+            $user = User::query()->find((int) $currentUser->id);
+        }
+
+        if ($user === null && $currentUser->email !== null) {
+            $user = User::query()->where('email', $currentUser->email)->first();
+        }
+
+        if ($user !== null) {
+            return $user;
+        }
+
+        $fallback = new User();
+        $fallback->name = $currentUser->name;
+        $fallback->email = $currentUser->email;
+
+        if (ctype_digit($currentUser->id)) {
+            $fallback->id = (int) $currentUser->id;
+        }
+
+        return $fallback;
     }
 }

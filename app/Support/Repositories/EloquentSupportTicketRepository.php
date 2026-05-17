@@ -8,6 +8,7 @@ use App\Models\SupportTicketActivityMention;
 use App\Models\SupportTicketAttachment;
 use App\Models\SupportTicketLinkedTask;
 use App\Support\Auth\CurrentUser;
+use App\Support\Auth\SupportAccessResolver;
 use App\Support\Enums\TicketStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
@@ -17,16 +18,22 @@ use Illuminate\Support\Str;
 
 final class EloquentSupportTicketRepository implements SupportTicketRepositoryInterface
 {
+    public function __construct(
+        private readonly SupportAccessResolver $supportAccessResolver,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $filters
      * @return array<int, array<string, mixed>>
      */
-    public function search(array $filters, ?string $sort): array
+    public function search(array $filters, ?string $sort, ?CurrentUser $currentUser = null): array
     {
+        $actor = $this->actor($currentUser);
         $query = SupportTicket::query();
         $query->withCount(['linkedTasks', 'attachments']);
         $query->with(['activities' => fn ($query) => $query->latest('occurred_at')]);
 
+        $this->supportAccessResolver->applyTicketScope($query, $actor);
         $this->applyFilters($query, $filters);
         $this->applySort($query, $sort);
 
@@ -36,12 +43,15 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
     /**
      * @return array<string, mixed>|null
      */
-    public function find(string $id): ?array
+    public function find(string $id, ?CurrentUser $currentUser = null): ?array
     {
-        $ticket = SupportTicket::query()
+        $actor = $this->actor($currentUser);
+        $query = SupportTicket::query()
             ->with(['activities.mentions', 'relatedItems'])
             ->with(['linkedTasks' => fn ($query) => $query->latest(), 'attachments' => fn ($query) => $query->latest('uploaded_at')])
-            ->find($id);
+            ->where('id', $id);
+        $this->supportAccessResolver->applyTicketScope($query, $actor);
+        $ticket = $query->first();
 
         return $ticket === null ? null : $this->mapTicket($ticket, includeDetail: true);
     }

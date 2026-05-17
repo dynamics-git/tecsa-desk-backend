@@ -24,6 +24,15 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'must_change_password',
+        'password_mode',
+        'password_expires_at',
+        'password_last_changed_at',
+        'password_never_expires',
+        'mfa_required',
+        'failed_login_attempts',
+        'locked_until',
+        'security_version',
     ];
 
     /**
@@ -47,6 +56,14 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
+            'password_expires_at' => 'datetime',
+            'password_last_changed_at' => 'datetime',
+            'password_never_expires' => 'boolean',
+            'mfa_required' => 'boolean',
+            'failed_login_attempts' => 'integer',
+            'locked_until' => 'datetime',
+            'security_version' => 'integer',
         ];
     }
 
