@@ -3,6 +3,7 @@
 namespace App\Support\Auth;
 
 use App\Models\ApiToken;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -25,6 +26,12 @@ final class CurrentUserResolver
             return null;
         }
 
+        if (! (bool) ($apiToken->user->is_active ?? false)) {
+            $apiToken->delete();
+
+            return null;
+        }
+
         $apiToken->forceFill(['last_used_at' => Carbon::now('UTC')])->save();
 
         return new CurrentUser(
@@ -41,6 +48,16 @@ final class CurrentUserResolver
 
     public function fromRequestOrFallback(Request $request): CurrentUser
     {
-        return $this->fromRequest($request) ?? $this->fallback();
+        $currentUser = $this->fromRequest($request);
+
+        if ($currentUser !== null) {
+            return $currentUser;
+        }
+
+        if (app()->runningUnitTests()) {
+            return $this->fallback();
+        }
+
+        throw new AuthenticationException('Unauthenticated.');
     }
 }

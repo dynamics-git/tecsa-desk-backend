@@ -42,6 +42,14 @@ final class AuthController extends Controller
         $data = $request->validated();
         $user = User::query()->where('email', $data['email'])->first();
 
+        if ($user !== null && ! (bool) $user->is_active) {
+            return response()->json([
+                'code' => 'ACCOUNT_INACTIVE',
+                'message' => 'Account is inactive.',
+                'nextAction' => 'contact_admin',
+            ], 403);
+        }
+
         if ($user !== null && $user->locked_until !== null && $user->locked_until->isFuture()) {
             return response()->json([
                 'code' => 'ACCOUNT_LOCKED',

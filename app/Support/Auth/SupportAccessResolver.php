@@ -53,10 +53,12 @@ final class SupportAccessResolver
         }
 
         $role = SupportPermissionRole::query()
+            ->where('is_active', true)
             ->where($this->matchCurrentUser($currentUser))
             ->first();
 
         $scope = SupportUserScope::query()
+            ->where('is_active', true)
             ->where($this->matchCurrentUser($currentUser))
             ->first();
 
@@ -429,6 +431,9 @@ final class SupportAccessResolver
     private function matchCurrentUser(CurrentUser $currentUser): \Closure
     {
         return function (Builder $query) use ($currentUser): void {
+            $table = $query->getModel()->getTable();
+            $hasUserIdsColumn = Schema::hasColumn($table, 'user_ids');
+
             $query->where(function (Builder $builder) use ($currentUser): void {
                 $hasAnyMatchClause = false;
 
@@ -451,6 +456,11 @@ final class SupportAccessResolver
                     $builder->whereRaw('1 = 0');
                 }
             });
+
+            if ($hasUserIdsColumn && ctype_digit($currentUser->id)) {
+                $query->orWhereJsonContains('user_ids', $currentUser->id);
+                $query->orWhereJsonContains('user_ids', (int) $currentUser->id);
+            }
         };
     }
 

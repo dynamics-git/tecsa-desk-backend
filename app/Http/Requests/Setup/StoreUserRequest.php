@@ -20,4 +20,14 @@ class StoreUserRequest extends FormRequest
             'isActive' => ['nullable', 'boolean'],
         ];
     }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'password_confirmation' => $this->input(
+                'password_confirmation',
+                $this->input('passwordConfirmation', $this->input('passwordConfirm'))
+            ),
+        ]);
+    }
 }

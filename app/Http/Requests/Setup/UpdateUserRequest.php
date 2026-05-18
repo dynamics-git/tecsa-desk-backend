@@ -21,4 +21,14 @@ class UpdateUserRequest extends FormRequest
             'isActive' => ['sometimes', 'boolean'],
         ];
     }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'password_confirmation' => $this->input(
+                'password_confirmation',
+                $this->input('passwordConfirmation', $this->input('passwordConfirm'))
+            ),
+        ]);
+    }
 }
