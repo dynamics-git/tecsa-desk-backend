@@ -25,16 +25,16 @@ class UpsertCustomerUserAccessRequest extends FormRequest
     {
         return [
             'id' => ['sometimes', 'required', 'string', 'max:100'],
-            'user_id' => ['required', 'string', 'max:100'],
-            'user_name' => ['nullable', 'string', 'max:255'],
-            'user_email' => ['nullable', 'string', 'max:255'],
-            'customer_id' => ['required', 'string', 'max:100'],
-            'customer_name' => ['nullable', 'string', 'max:255'],
-            'access_level' => ['required', Rule::in(['OwnTickets', 'CompanyTickets', 'Admin'])],
-            'can_create_ticket' => ['nullable', 'boolean'],
-            'can_view_attachments' => ['nullable', 'boolean'],
-            'can_reply' => ['nullable', 'boolean'],
-            'is_active' => ['nullable', 'boolean'],
+            'userId' => ['required', 'string', 'max:100'],
+            'userName' => ['nullable', 'string', 'max:255'],
+            'userEmail' => ['nullable', 'string', 'max:255'],
+            'customerId' => ['required', 'string', 'max:100'],
+            'customerName' => ['nullable', 'string', 'max:255'],
+            'accessLevel' => ['required', Rule::in(['OwnTickets', 'CompanyTickets', 'Admin'])],
+            'canCreateTicket' => ['nullable', 'boolean'],
+            'canViewAttachments' => ['nullable', 'boolean'],
+            'canReply' => ['nullable', 'boolean'],
+            'isActive' => ['nullable', 'boolean'],
         ];
     }
 
@@ -42,16 +42,16 @@ class UpsertCustomerUserAccessRequest extends FormRequest
     {
         $this->merge([
             'id' => $this->input('id'),
-            'user_id' => $this->input('user_id', $this->input('userId')),
-            'user_name' => $this->input('user_name', $this->input('userName')),
-            'user_email' => $this->input('user_email', $this->input('userEmail')),
-            'customer_id' => $this->input('customer_id', $this->input('customerId')),
-            'customer_name' => $this->input('customer_name', $this->input('customerName')),
-            'access_level' => $this->input('access_level', $this->input('accessLevel')),
-            'can_create_ticket' => $this->toBoolean($this->input('can_create_ticket', $this->input('canCreateTicket', false))),
-            'can_view_attachments' => $this->toBoolean($this->input('can_view_attachments', $this->input('canViewAttachments', false))),
-            'can_reply' => $this->toBoolean($this->input('can_reply', $this->input('canReply', false))),
-            'is_active' => $this->toBoolean($this->input('is_active', $this->input('isActive', $this->input('active', true)))),
+            'userId' => $this->input('userId'),
+            'userName' => $this->input('userName'),
+            'userEmail' => $this->input('userEmail'),
+            'customerId' => $this->input('customerId'),
+            'customerName' => $this->input('customerName'),
+            'accessLevel' => $this->input('accessLevel'),
+            'canCreateTicket' => $this->toBoolean($this->input('canCreateTicket', false)),
+            'canViewAttachments' => $this->toBoolean($this->input('canViewAttachments', false)),
+            'canReply' => $this->toBoolean($this->input('canReply', false)),
+            'isActive' => $this->toBoolean($this->input('isActive', $this->input('active', true))),
         ]);
     }
 

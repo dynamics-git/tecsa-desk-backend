@@ -49,16 +49,16 @@ class CustomerUserAccessController extends Controller
     private function payload(array $data): array
     {
         return array_filter([
-            'user_id' => $this->normalizeUserId($data['user_id'] ?? null),
-            'user_name' => $data['user_name'] ?? null,
-            'user_email' => $data['user_email'] ?? null,
-            'customer_id' => $data['customer_id'] ?? null,
-            'customer_name' => $data['customer_name'] ?? null,
-            'access_level' => $data['access_level'] ?? null,
-            'can_create_ticket' => $data['can_create_ticket'] ?? false,
-            'can_view_attachments' => $data['can_view_attachments'] ?? false,
-            'can_reply' => $data['can_reply'] ?? false,
-            'is_active' => $data['is_active'] ?? true,
+            'user_id' => $this->normalizeUserId($data['userId'] ?? null),
+            'user_name' => $data['userName'] ?? null,
+            'user_email' => $data['userEmail'] ?? null,
+            'customer_id' => $data['customerId'] ?? null,
+            'customer_name' => $data['customerName'] ?? null,
+            'access_level' => $data['accessLevel'] ?? null,
+            'can_create_ticket' => $data['canCreateTicket'] ?? false,
+            'can_view_attachments' => $data['canViewAttachments'] ?? false,
+            'can_reply' => $data['canReply'] ?? false,
+            'is_active' => $data['isActive'] ?? true,
         ], fn ($value): bool => $value !== null);
     }
 

@@ -53,7 +53,6 @@ final class AuthPasswordController extends Controller
     {
         $data = $request->validate([
             'userId' => ['sometimes', 'string'],
-            'user_id' => ['sometimes', 'string'],
             'purpose' => ['sometimes', 'string', 'in:create,reset'],
         ]);
 
@@ -70,22 +69,19 @@ final class AuthPasswordController extends Controller
     public function setByAdmin(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'userId' => ['sometimes', 'required_without:user_id', 'string'],
-            'user_id' => ['sometimes', 'required_without:userId', 'string'],
+            'userId' => ['required', 'string'],
             'mode' => ['required', 'string', 'in:manual,generated'],
             'password' => ['nullable', 'string'],
             'forceChangeOnNextLogin' => ['sometimes', 'boolean'],
-            'force_change_on_next_login' => ['sometimes', 'boolean'],
             'notifyUser' => ['sometimes', 'boolean'],
-            'notify_user' => ['sometimes', 'boolean'],
             'reason' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $userId = $data['userId'] ?? $data['user_id'];
+        $userId = $data['userId'];
         $user = User::query()->findOrFail((int) $userId);
         $actor = $this->currentUserResolver->fromRequest($request);
         $actorId = $actor !== null && ctype_digit($actor->id) ? (int) $actor->id : null;
-        $forceChange = (bool) ($data['forceChangeOnNextLogin'] ?? $data['force_change_on_next_login'] ?? true);
+        $forceChange = (bool) ($data['forceChangeOnNextLogin'] ?? true);
 
         $temporaryPassword = null;
         if ($data['mode'] === 'generated') {
@@ -121,7 +117,7 @@ final class AuthPasswordController extends Controller
             reason: $data['reason'] ?? null,
             metadata: [
                 'mode' => $data['mode'],
-                'notifyUser' => (bool) ($data['notifyUser'] ?? $data['notify_user'] ?? false),
+                'notifyUser' => (bool) ($data['notifyUser'] ?? false),
             ],
         );
 
@@ -137,10 +133,8 @@ final class AuthPasswordController extends Controller
     public function changePassword(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'currentPassword' => ['sometimes', 'required_without:current_password', 'string'],
-            'current_password' => ['sometimes', 'required_without:currentPassword', 'string'],
-            'newPassword' => ['sometimes', 'required_without:new_password', 'string'],
-            'new_password' => ['sometimes', 'required_without:newPassword', 'string'],
+            'currentPassword' => ['required', 'string'],
+            'newPassword' => ['required', 'string'],
         ]);
 
         $currentUser = $this->currentUserResolver->fromRequest($request);
@@ -149,8 +143,8 @@ final class AuthPasswordController extends Controller
         }
 
         $user = User::query()->findOrFail((int) $currentUser->id);
-        $currentPassword = (string) ($data['currentPassword'] ?? $data['current_password']);
-        $newPassword = (string) ($data['newPassword'] ?? $data['new_password']);
+        $currentPassword = (string) $data['currentPassword'];
+        $newPassword = (string) $data['newPassword'];
 
         if (! Hash::check($currentPassword, $user->password)) {
             return response()->json([
@@ -214,8 +208,7 @@ final class AuthPasswordController extends Controller
     {
         $data = $request->validate([
             'token' => ['required', 'string'],
-            'newPassword' => ['sometimes', 'required_without:new_password', 'string'],
-            'new_password' => ['sometimes', 'required_without:newPassword', 'string'],
+            'newPassword' => ['required', 'string'],
         ]);
 
         $hashedToken = hash('sha256', $data['token']);
@@ -234,7 +227,7 @@ final class AuthPasswordController extends Controller
             return response()->json(['code' => 'INVALID_RESET_TOKEN', 'message' => 'Invalid reset token.'], 422);
         }
 
-        $newPassword = (string) ($data['newPassword'] ?? $data['new_password']);
+        $newPassword = (string) $data['newPassword'];
         $validationError = $this->passwordSecurityService->validatePassword($newPassword, $user, true);
         if ($validationError !== null) {
             return response()->json(['code' => $validationError, 'message' => 'New password does not meet policy requirements.'], 422);

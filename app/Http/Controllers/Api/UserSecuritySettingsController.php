@@ -28,15 +28,10 @@ final class UserSecuritySettingsController extends Controller
     {
         $data = $request->validate([
             'mustChangePassword' => ['sometimes', 'boolean'],
-            'must_change_password' => ['sometimes', 'boolean'],
             'passwordNeverExpires' => ['sometimes', 'boolean'],
-            'password_never_expires' => ['sometimes', 'boolean'],
             'mfaRequired' => ['sometimes', 'boolean'],
-            'mfa_required' => ['sometimes', 'boolean'],
             'accountLocked' => ['sometimes', 'boolean'],
-            'account_locked' => ['sometimes', 'boolean'],
             'lockDurationMinutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
-            'lock_duration_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
             'version' => ['required', 'integer', 'min:1'],
         ]);
 
@@ -49,17 +44,17 @@ final class UserSecuritySettingsController extends Controller
             ], 409);
         }
 
-        $accountLocked = $data['accountLocked'] ?? $data['account_locked'] ?? null;
-        $lockMinutes = (int) ($data['lockDurationMinutes'] ?? $data['lock_duration_minutes'] ?? 15);
+        $accountLocked = $data['accountLocked'] ?? null;
+        $lockMinutes = (int) ($data['lockDurationMinutes'] ?? 15);
 
-        if (array_key_exists('mustChangePassword', $data) || array_key_exists('must_change_password', $data)) {
-            $user->must_change_password = (bool) ($data['mustChangePassword'] ?? $data['must_change_password']);
+        if (array_key_exists('mustChangePassword', $data)) {
+            $user->must_change_password = (bool) $data['mustChangePassword'];
         }
-        if (array_key_exists('passwordNeverExpires', $data) || array_key_exists('password_never_expires', $data)) {
-            $user->password_never_expires = (bool) ($data['passwordNeverExpires'] ?? $data['password_never_expires']);
+        if (array_key_exists('passwordNeverExpires', $data)) {
+            $user->password_never_expires = (bool) $data['passwordNeverExpires'];
         }
-        if (array_key_exists('mfaRequired', $data) || array_key_exists('mfa_required', $data)) {
-            $user->mfa_required = (bool) ($data['mfaRequired'] ?? $data['mfa_required']);
+        if (array_key_exists('mfaRequired', $data)) {
+            $user->mfa_required = (bool) $data['mfaRequired'];
         }
         if ($accountLocked !== null) {
             $user->locked_until = $accountLocked ? Carbon::now('UTC')->addMinutes($lockMinutes) : null;

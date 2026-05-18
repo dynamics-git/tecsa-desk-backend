@@ -49,14 +49,14 @@ class SupportUserScopeController extends Controller
     private function payload(array $data): array
     {
         return array_filter([
-            'user_id' => $this->normalizeUserId($data['user_id'] ?? null),
-            'user_name' => $data['user_name'] ?? null,
-            'user_email' => $data['user_email'] ?? null,
-            'visibility_mode' => $data['visibility_mode'] ?? null,
-            'team_ids' => $data['team_ids'] ?? [],
-            'queue_ids' => $data['queue_ids'] ?? [],
-            'customer_ids' => $data['customer_ids'] ?? [],
-            'is_active' => $data['is_active'] ?? true,
+            'user_id' => $this->normalizeUserId($data['userId'] ?? null),
+            'user_name' => $data['userName'] ?? null,
+            'user_email' => $data['userEmail'] ?? null,
+            'visibility_mode' => $data['visibilityMode'] ?? null,
+            'team_ids' => $data['teamIds'] ?? [],
+            'queue_ids' => $data['queueIds'] ?? [],
+            'customer_ids' => $data['customerIds'] ?? [],
+            'is_active' => $data['isActive'] ?? true,
         ], fn ($value): bool => $value !== null);
     }
 

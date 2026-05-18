@@ -2,12 +2,12 @@
 
 ## Final Naming Decision (Current Release)
 - Backend response standard: camelCase only.
-- Backend request parsing: accept both camelCase and snake_case during transition.
-- Frontend remains unchanged (it already tolerates both).
+- Backend request standard: camelCase only.
+- Frontend contract: camelCase only.
 - No more naming convention changes until release is stable.
 
 One-line summary:
-Keep camelCase as backend wire-format output, support dual-input parsing for compatibility, and avoid naming drift until release stabilization.
+Keep camelCase as backend wire-format output and input, and avoid naming drift until release stabilization.
 
 ## Base URL
 http://localhost/tecsa-desk-backend/public/api
@@ -98,16 +98,14 @@ Required user fields (camelCase output):
 If customer access is returned, use object array form:
 - customerAccess: [{ customerId, customerName, accessLevel, canCreateTicket, canViewAttachments, canReply }]
 
-## Request Parsing Compatibility (Input)
-Backend must accept both styles for incoming payloads:
-- camelCase (preferred)
-- snake_case (compatibility)
+## Request Input Rules
+Backend request payloads must use camelCase.
 
 Examples:
-- userId or user_id
-- teamIds or team_ids
-- ticketVisibility or ticket_visibility
-- isActive or is_active
+- userId
+- teamIds
+- ticketVisibility
+- isActive
 
 ## Stability Rules
 - Arrays must always be arrays, never null.
@@ -257,7 +255,7 @@ Implementation status
 
 - Implemented and live in backend.
 - Canonical response keys are camelCase.
-- Request parser accepts camelCase and snake_case where applicable.
+- Request payload contract is camelCase.
 
 ### Endpoints
 
@@ -309,15 +307,15 @@ Security settings response:
 - securityVersion
 - version
 
-### Request Compatibility
+### Request Naming
 
-Dual input accepted for transition examples:
-- userId or user_id
-- currentPassword or current_password
-- newPassword or new_password
-- forceChangeOnNextLogin or force_change_on_next_login
-- mustChangePassword or must_change_password
-- passwordNeverExpires or password_never_expires
+Accepted request keys are camelCase only:
+- userId
+- currentPassword
+- newPassword
+- forceChangeOnNextLogin
+- mustChangePassword
+- passwordNeverExpires
 
 ### Frontend Quick Contract
 

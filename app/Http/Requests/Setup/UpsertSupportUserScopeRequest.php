@@ -27,17 +27,17 @@ class UpsertSupportUserScopeRequest extends FormRequest
 
         return [
             'id' => ['sometimes', 'required', 'string', 'max:100'],
-            'user_id' => ['required', 'string', 'max:100'],
-            'user_name' => ['nullable', 'string', 'max:255'],
-            'user_email' => ['nullable', 'string', 'max:255'],
-            'visibility_mode' => ['required', Rule::in($visibility)],
-            'team_ids' => ['nullable', 'array'],
-            'team_ids.*' => ['string'],
-            'queue_ids' => ['nullable', 'array'],
-            'queue_ids.*' => ['string'],
-            'customer_ids' => ['nullable', 'array'],
-            'customer_ids.*' => ['string'],
-            'is_active' => ['nullable', 'boolean'],
+            'userId' => ['required', 'string', 'max:100'],
+            'userName' => ['nullable', 'string', 'max:255'],
+            'userEmail' => ['nullable', 'string', 'max:255'],
+            'visibilityMode' => ['required', Rule::in($visibility)],
+            'teamIds' => ['nullable', 'array'],
+            'teamIds.*' => ['string'],
+            'queueIds' => ['nullable', 'array'],
+            'queueIds.*' => ['string'],
+            'customerIds' => ['nullable', 'array'],
+            'customerIds.*' => ['string'],
+            'isActive' => ['nullable', 'boolean'],
         ];
     }
 
@@ -45,14 +45,14 @@ class UpsertSupportUserScopeRequest extends FormRequest
     {
         $this->merge([
             'id' => $this->input('id'),
-            'user_id' => $this->input('user_id', $this->input('userId')),
-            'user_name' => $this->input('user_name', $this->input('userName')),
-            'user_email' => $this->input('user_email', $this->input('userEmail')),
-            'visibility_mode' => $this->input('visibility_mode', $this->input('visibilityMode', $this->input('ticket_visibility', $this->input('ticketVisibility', 'Own')))),
-            'team_ids' => $this->normalizeArray($this->input('team_ids', $this->input('teamIds', []))),
-            'queue_ids' => $this->normalizeArray($this->input('queue_ids', $this->input('queueIds', []))),
-            'customer_ids' => $this->normalizeArray($this->input('customer_ids', $this->input('customerIds', []))),
-            'is_active' => $this->toBoolean($this->input('is_active', $this->input('isActive', $this->input('active', true)))),
+            'userId' => $this->input('userId'),
+            'userName' => $this->input('userName'),
+            'userEmail' => $this->input('userEmail'),
+            'visibilityMode' => $this->input('visibilityMode', $this->input('ticketVisibility', 'Own')),
+            'teamIds' => $this->normalizeArray($this->input('teamIds', [])),
+            'queueIds' => $this->normalizeArray($this->input('queueIds', [])),
+            'customerIds' => $this->normalizeArray($this->input('customerIds', [])),
+            'isActive' => $this->toBoolean($this->input('isActive', $this->input('active', true))),
         ]);
     }
 

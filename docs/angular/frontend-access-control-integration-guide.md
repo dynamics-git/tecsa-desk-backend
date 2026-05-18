@@ -10,7 +10,7 @@ Use this guide for:
 
 ## Release Naming Lock (Current Release)
 - Backend response format is camelCase only.
-- Backend request parsing accepts both camelCase and snake_case during transition.
+- Backend request format is camelCase only.
 - Frontend internal models stay camelCase.
 - No naming convention changes are allowed until release stabilization.
 
@@ -50,15 +50,6 @@ Frontend must support both response wrappers:
 ```json
 { "id": "...", "userType": "Internal" }
 ```
-
-Frontend must also tolerate snake_case fallback keys:
-- `user_type`
-- `ticket_visibility`
-- `customer_access`
-- `team_ids`
-- `queue_ids`
-- `customer_ids`
-- `is_admin`
 
 ### Reference Type (Frontend)
 ```ts
@@ -113,7 +104,6 @@ These setup endpoint paths are canonical and must stay exactly the same:
 ### 1) Auth mapping
 - Read `auth/me` payload into a single normalized `AuthUser` model.
 - Normalize wrapper shape (`response.user ?? response`).
-- Normalize snake_case fallback into camelCase fields.
 - Default unknown arrays to `[]` and booleans to `false`.
 
 Example mapper:
@@ -125,15 +115,15 @@ function mapAuthUser(response: any): AuthUser {
     id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
     email: raw.email ?? null,
-    userType: raw.userType ?? raw.user_type ?? 'Customer',
+    userType: raw.userType ?? 'Customer',
     role: String(raw.role ?? ''),
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
-    teamIds: Array.isArray(raw.teamIds) ? raw.teamIds : (Array.isArray(raw.team_ids) ? raw.team_ids : []),
-    queueIds: Array.isArray(raw.queueIds) ? raw.queueIds : (Array.isArray(raw.queue_ids) ? raw.queue_ids : []),
-    customerIds: Array.isArray(raw.customerIds) ? raw.customerIds : (Array.isArray(raw.customer_ids) ? raw.customer_ids : []),
-    ticketVisibility: raw.ticketVisibility ?? raw.ticket_visibility ?? 'Own',
-    customerAccess: Array.isArray(raw.customerAccess) ? raw.customerAccess : (Array.isArray(raw.customer_access) ? raw.customer_access : []),
-    isAdmin: Boolean(raw.isAdmin ?? raw.is_admin ?? false),
+    teamIds: Array.isArray(raw.teamIds) ? raw.teamIds : [],
+    queueIds: Array.isArray(raw.queueIds) ? raw.queueIds : [],
+    customerIds: Array.isArray(raw.customerIds) ? raw.customerIds : [],
+    ticketVisibility: raw.ticketVisibility ?? 'Own',
+    customerAccess: Array.isArray(raw.customerAccess) ? raw.customerAccess : [],
+    isAdmin: Boolean(raw.isAdmin ?? false),
   };
 }
 ```
@@ -214,7 +204,6 @@ Use this matrix consistently in frontend API interceptors and components.
 
 Before release, verify all items:
 - Auth mapper supports wrapped and direct payload shape.
-- Auth mapper supports snake_case fallback keys.
 - UI checks only `support.ticket.*` keys.
 - Setup service paths match backend contract exactly.
 - Ticket list empty state is scope-aware.
@@ -227,7 +216,6 @@ Before release, verify all items:
 ### Auth mapping
 - internal user payload maps correctly
 - customer user payload maps correctly
-- snake_case payload maps correctly
 
 ### Scope visibility
 - internal list displays all allowed tickets

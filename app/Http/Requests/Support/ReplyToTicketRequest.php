@@ -19,7 +19,7 @@ final class ReplyToTicketRequest extends FormRequest
     {
         return [
             'message' => ['nullable', 'string', 'min:1', 'max:10000', 'required_without:htmlBody'],
-            'htmlBody' => ['nullable', 'string', 'max:200000', 'required_without:message'],
+            'htmlBody' => ['nullable', 'string', 'required_without:message'],
             'isInternalNote' => ['required', 'boolean'],
             'attachmentIds' => ['nullable', 'array', 'max:25'],
             'attachmentIds.*' => ['required', 'string', 'distinct', 'max:64'],

@@ -49,17 +49,17 @@ class SupportPermissionRoleController extends Controller
     private function payload(array $data): array
     {
         return array_filter([
-            'user_id' => $this->normalizeUserId($data['user_id'] ?? null),
-            'user_email' => $data['user_email'] ?? null,
-            'user_type' => $data['user_type'] ?? null,
+            'user_id' => $this->normalizeUserId($data['userId'] ?? null),
+            'user_email' => $data['userEmail'] ?? null,
+            'user_type' => $data['userType'] ?? null,
             'role' => $data['name'] ?? null,
             'permissions' => $data['permissions'] ?? [],
-            'user_ids' => $data['user_ids'] ?? [],
-            'team_ids' => $data['team_ids'] ?? [],
-            'customer_ids' => $data['customer_ids'] ?? [],
-            'ticket_visibility' => $data['ticket_visibility'] ?? null,
-            'is_active' => $data['is_active'] ?? true,
-            'is_admin' => $data['is_admin'] ?? false,
+            'user_ids' => $data['userIds'] ?? [],
+            'team_ids' => $data['teamIds'] ?? [],
+            'customer_ids' => $data['customerIds'] ?? [],
+            'ticket_visibility' => $data['ticketVisibility'] ?? null,
+            'is_active' => $data['isActive'] ?? true,
+            'is_admin' => $data['isAdmin'] ?? false,
         ], fn ($value): bool => $value !== null);
     }
 
