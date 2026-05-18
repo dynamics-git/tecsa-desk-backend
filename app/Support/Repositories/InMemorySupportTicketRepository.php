@@ -159,6 +159,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         string $ticketId,
         string $message,
         bool $isInternalNote,
+        ?string $htmlBody = null,
         array $attachmentIds = [],
         ?string $parentActivityId = null,
         array $mentions = [],
@@ -180,6 +181,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             'time' => $time,
             'type' => $isInternalNote ? 'note' : 'reply',
             'message' => $message,
+            'htmlBody' => $htmlBody,
         ];
 
         return $activityId;

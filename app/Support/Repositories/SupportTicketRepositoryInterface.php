@@ -73,6 +73,7 @@ interface SupportTicketRepositoryInterface
         string $ticketId,
         string $message,
         bool $isInternalNote,
+        ?string $htmlBody = null,
         array $attachmentIds = [],
         ?string $parentActivityId = null,
         array $mentions = [],

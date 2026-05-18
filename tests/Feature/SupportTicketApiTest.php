@@ -3,10 +3,17 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Models\SupportActivityRead;
+use App\Models\SupportTicketAttachment;
+use App\Models\SupportTicketEmailMessage;
+use App\Models\SupportTicketNotificationDispatch;
+use App\Models\SupportPermissionRole;
+use App\Models\SupportUserScope;
 use Database\Seeders\SupportReferenceDataSeeder;
 use Database\Seeders\SupportTicketSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -414,10 +421,42 @@ class SupportTicketApiTest extends TestCase
 
     public function test_bulk_priority_updates_known_tickets(): void
     {
+        $user = User::query()->create([
+            'name' => 'Amit',
+            'email' => 'amit@example.com',
+            'password' => 'password',
+        ]);
+
+        SupportPermissionRole::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'user_type' => 'Internal',
+            'role' => 'SupportAdmin',
+            'permissions' => ['support.ticket.view', 'support.ticket.changePriority', 'support.ticket.bulkUpdate'],
+            'ticket_visibility' => 'All',
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+
+        SupportUserScope::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'visibility_mode' => 'All',
+            'team_ids' => [],
+            'queue_ids' => [],
+            'customer_ids' => [],
+            'is_active' => true,
+        ]);
+
+        $token = $this->postJson('/api/auth/login', [
+            'email' => 'amit@example.com',
+            'password' => 'password',
+        ])->json('token');
+
         $response = $this->postJson('/api/support/tickets/bulk/priority', [
             'ticketIds' => ['TK-1048', 'TK-1047', 'TK-9999'],
             'priority' => 'High',
-        ]);
+        ], ['Authorization' => 'Bearer '.$token]);
 
         $response
             ->assertOk()
@@ -460,6 +499,27 @@ class SupportTicketApiTest extends TestCase
             'email' => 'arka@example.com',
             'password' => 'password',
         ])->json('token');
+
+        SupportPermissionRole::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'user_type' => 'Internal',
+            'role' => 'Agent',
+            'permissions' => ['support.ticket.view', 'support.ticket.reply'],
+            'ticket_visibility' => 'All',
+            'is_admin' => false,
+            'is_active' => true,
+        ]);
+
+        SupportUserScope::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'visibility_mode' => 'All',
+            'team_ids' => [],
+            'queue_ids' => [],
+            'customer_ids' => [],
+            'is_active' => true,
+        ]);
 
         $response = $this->postJson('/api/support/tickets/TK-1048/reply', [
             'message' => 'Hi @arka please verify with @portal-support.',
@@ -649,5 +709,313 @@ class SupportTicketApiTest extends TestCase
         $response
             ->assertUnprocessable()
             ->assertJsonValidationErrors('attachmentIds.1');
+    }
+
+    public function test_reply_returns_created_at_field(): void
+    {
+        $response = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'CreatedAt contract check.',
+            'isInternalNote' => false,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['activityId', 'createdAt']);
+    }
+
+    public function test_reply_accepts_html_body_and_exposes_it_in_activities(): void
+    {
+        $response = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'Plain fallback',
+            'htmlBody' => "<p>Inline image</p><img src='cid:test' style='width:640px'>",
+            'isInternalNote' => false,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['activityId', 'createdAt']);
+
+        $activityId = $response->json('activityId');
+
+        $activities = $this->getJson('/api/support/tickets/TK-1048/activities');
+
+        $activities
+            ->assertOk()
+            ->assertJsonPath('0.id', $activityId)
+            ->assertJsonPath('0.body', 'Plain fallback')
+            ->assertJsonPath('0.htmlBody', "<p>Inline image</p><img src='cid:test' style='width:640px'>");
+    }
+
+    public function test_reply_allows_html_body_without_message(): void
+    {
+        $response = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'htmlBody' => '<p>Only html body</p>',
+            'isInternalNote' => false,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['activityId']);
+
+        $activities = $this->getJson('/api/support/tickets/TK-1048/activities');
+
+        $activities
+            ->assertOk()
+            ->assertJsonPath('0.id', $response->json('activityId'))
+            ->assertJsonPath('0.htmlBody', '<p>Only html body</p>');
+    }
+
+    public function test_email_send_queues_delivery_log_and_returns_contract_shape(): void
+    {
+        Queue::fake();
+
+        $response = $this->postJson('/api/support/tickets/TK-1048/email-send', [
+            'to' => ['customer@example.com'],
+            'cc' => ['manager@example.com'],
+            'bcc' => [],
+            'subject' => 'Ticket update',
+            'htmlBody' => '<p>Status updated</p>',
+            'textBody' => 'Status updated',
+            'attachmentIds' => ['ATT-1001'],
+            'parentActivityId' => 'ACT-9001',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('deliveryStatus', 'queued')
+            ->assertJsonPath('activityId', fn ($value) => is_string($value) && str_starts_with($value, 'ACT-'))
+            ->assertJsonStructure(['activityId', 'providerMessageId', 'deliveryStatus', 'queuedAt']);
+
+        $this->assertDatabaseHas('support_ticket_email_messages', [
+            'support_ticket_id' => 'TK-1048',
+            'delivery_status' => 'queued',
+            'subject' => 'Ticket update',
+        ]);
+
+        Queue::assertPushed(\App\Jobs\SendSupportTicketEmailJob::class);
+    }
+
+    public function test_email_send_returns_not_found_for_missing_ticket(): void
+    {
+        Queue::fake();
+
+        $response = $this->postJson('/api/support/tickets/TK-9999/email-send', [
+            'to' => ['customer@example.com'],
+            'subject' => 'Ticket update',
+            'textBody' => 'Hello',
+        ]);
+
+        $response
+            ->assertNotFound()
+            ->assertJson(['message' => 'Ticket not found.']);
+    }
+
+    public function test_activities_endpoint_includes_email_metadata_and_attachments(): void
+    {
+        Queue::fake();
+
+        $send = $this->postJson('/api/support/tickets/TK-1048/email-send', [
+            'to' => ['customer@example.com'],
+            'subject' => 'Conversation sync',
+            'textBody' => 'Conversation sync text',
+            'attachmentIds' => ['ATT-1001'],
+        ]);
+
+        $activityId = $send->json('activityId');
+
+        $response = $this->getJson('/api/support/tickets/TK-1048/activities');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('0.id', $activityId)
+            ->assertJsonPath('0.type', 'email-send')
+            ->assertJsonPath('0.deliveryStatus', 'queued')
+            ->assertJsonPath('0.isUnread', true)
+            ->assertJsonPath('0.readAt', null)
+            ->assertJsonPath('0.attachments.0.id', 'ATT-1001')
+            ->assertJsonStructure([
+                ['id', 'type', 'attachments', 'providerMessageId', 'deliveryStatus', 'deliveredAt', 'failedReason', 'isUnread', 'readAt', 'mentionedCurrentUser', 'mentionedNames'],
+            ]);
+    }
+
+    public function test_mark_read_updates_selected_activity_rows_and_reflects_in_activities(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Arka',
+            'email' => 'arka@example.com',
+            'password' => 'password',
+        ]);
+
+        $this->grantTicketViewAccess($user, ['support.ticket.view', 'support.ticket.reply']);
+
+        $token = $this->postJson('/api/auth/login', [
+            'email' => 'arka@example.com',
+            'password' => 'password',
+        ])->json('token');
+
+        $replyOne = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'First unread reply',
+            'isInternalNote' => false,
+        ], ['Authorization' => 'Bearer '.$token]);
+
+        $replyTwo = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'Second unread reply',
+            'isInternalNote' => false,
+        ], ['Authorization' => 'Bearer '.$token]);
+
+        $mark = $this->postJson('/api/support/tickets/TK-1048/activities/mark-read', [
+            'activityIds' => [$replyOne->json('activityId'), $replyTwo->json('activityId')],
+        ], ['Authorization' => 'Bearer '.$token]);
+
+        $mark
+            ->assertOk()
+            ->assertJsonPath('updated', 2);
+
+        $this->assertDatabaseCount('support_activity_reads', 2);
+        $this->assertDatabaseHas('support_activity_reads', [
+            'activity_id' => $replyOne->json('activityId'),
+            'user_id' => (string) $user->id,
+        ]);
+
+        $activities = $this->getJson('/api/support/tickets/TK-1048/activities', [
+            'Authorization' => 'Bearer '.$token,
+        ]);
+
+        $activities
+            ->assertOk()
+            ->assertJsonPath('0.id', $replyTwo->json('activityId'))
+            ->assertJsonPath('0.isUnread', false)
+            ->assertJsonPath('0.readAt', fn ($value) => is_string($value) && str_contains($value, 'T'));
+    }
+
+    public function test_mark_read_all_marks_every_activity_for_current_user(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Nisa',
+            'email' => 'nisa@example.com',
+            'password' => 'password',
+        ]);
+
+        $this->grantTicketViewAccess($user, ['support.ticket.view', 'support.ticket.reply']);
+
+        $token = $this->postJson('/api/auth/login', [
+            'email' => 'nisa@example.com',
+            'password' => 'password',
+        ])->json('token');
+
+        $response = $this->postJson('/api/support/tickets/TK-1048/activities/mark-read-all', [], [
+            'Authorization' => 'Bearer '.$token,
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('updated', fn ($value) => is_int($value) && $value > 0);
+
+        $updatedCount = (int) $response->json('updated');
+        $this->assertSame($updatedCount, SupportActivityRead::query()->where('user_id', (string) $user->id)->count());
+    }
+
+    public function test_ticket_attachments_endpoint_returns_preview_and_download_urls(): void
+    {
+        $response = $this->getJson('/api/support/tickets/TK-1048/attachments');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('total', 2)
+            ->assertJsonPath('items.0.ticketId', 'TK-1048')
+            ->assertJsonPath('items.0.previewUrl', fn ($value) => is_string($value) && str_contains($value, 'signature='))
+            ->assertJsonPath('items.0.downloadUrl', fn ($value) => is_string($value) && str_contains($value, 'signature='))
+            ->assertJsonStructure([
+                'items' => [['id', 'fileName', 'size', 'mimeType', 'uploadedBy', 'uploadedAt', 'activityId', 'previewUrl', 'downloadUrl']],
+                'total',
+                'page',
+                'pageSize',
+            ]);
+    }
+
+    public function test_download_all_attachments_returns_signed_zip_url(): void
+    {
+        Storage::fake('local');
+
+        SupportTicketAttachment::query()->create([
+            'id' => 'ATT-9001',
+            'support_ticket_id' => 'TK-1048',
+            'file_name' => 'export.txt',
+            'disk' => 'local',
+            'path' => 'support-attachments/ATT-9001-export.txt',
+            'mime_type' => 'text/plain',
+            'size' => 12,
+            'uploaded_by' => 'Amit',
+            'visibility' => 'public',
+            'uploaded_at' => now('UTC'),
+        ]);
+
+        Storage::disk('local')->put('support-attachments/ATT-9001-export.txt', 'export body');
+
+        $response = $this->postJson('/api/support/tickets/TK-1048/attachments/download-all', [
+            'attachmentIds' => ['ATT-9001'],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('downloadUrl', fn ($value) => is_string($value) && str_contains($value, '/api/support/attachments/bundles/') && str_contains($value, 'signature='));
+    }
+
+    public function test_notifications_dispatch_returns_queued_job_ids_and_persists_dispatch_rows(): void
+    {
+        Queue::fake();
+
+        $response = $this->postJson('/api/support/tickets/TK-1048/notifications/dispatch', [
+            'eventTypes' => ['reply', 'email', 'forward', 'internal_mention'],
+            'channels' => ['email', 'in_app'],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(4, 'queuedJobIds');
+
+        $this->assertDatabaseCount('support_ticket_notification_dispatches', 4);
+        Queue::assertPushed(\App\Jobs\DispatchSupportTicketNotificationJob::class, 4);
+    }
+
+    public function test_notifications_dispatch_validates_event_type(): void
+    {
+        $response = $this->postJson('/api/support/tickets/TK-1048/notifications/dispatch', [
+            'eventTypes' => ['invalid'],
+        ]);
+
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('eventTypes.0');
+    }
+
+    /**
+     * @param  array<int, string>  $permissions
+     */
+    private function grantTicketViewAccess(User $user, array $permissions = ['support.ticket.view']): void
+    {
+        SupportPermissionRole::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'user_type' => 'Internal',
+            'role' => 'Agent',
+            'permissions' => $permissions,
+            'ticket_visibility' => 'All',
+            'is_admin' => false,
+            'is_active' => true,
+        ]);
+
+        SupportUserScope::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'visibility_mode' => 'All',
+            'team_ids' => [],
+            'queue_ids' => [],
+            'customer_ids' => [],
+            'is_active' => true,
+        ]);
     }
 }

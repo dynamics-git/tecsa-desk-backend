@@ -391,3 +391,219 @@ PATCH /api/users/{id}/security-settings response:
 - Forgot/reset endpoints are rate-limited.
 - Password and security updates are audit logged.
 - Password history reuse is enforced in policy validation paths.
+
+## Enterprise Conversation APIs (Implemented)
+
+Objective
+
+Support a full enterprise ticket conversation detail screen with email send, threaded activities, attachment delivery URLs, and notification dispatch queueing.
+
+### Endpoints
+
+- POST /api/support/tickets/{id}/email-send
+- POST /api/support/tickets/{id}/reply
+- GET /api/support/tickets/{id}/activities
+- GET /api/support/tickets/{id}/attachments
+- POST /api/support/tickets/{id}/attachments/download-all
+- POST /api/support/tickets/{id}/notifications/dispatch
+
+### Request/Response Contract
+
+POST /api/support/tickets/{id}/email-send request:
+```json
+{
+	"to": ["customer@example.com"],
+	"cc": ["manager@example.com"],
+	"bcc": [],
+	"subject": "Ticket update",
+	"htmlBody": "<p>Update</p>",
+	"textBody": "Update",
+	"attachmentIds": ["ATT-1001"],
+	"parentActivityId": "ACT-9001"
+}
+```
+
+POST /api/support/tickets/{id}/email-send response:
+```json
+{
+	"activityId": "ACT-10010",
+	"providerMessageId": "queued-...",
+	"deliveryStatus": "queued",
+	"queuedAt": "2026-05-17T12:30:00Z"
+}
+```
+
+POST /api/support/tickets/{id}/reply response (current):
+```json
+{
+	"success": true,
+	"activityId": "ACT-10011",
+	"createdAt": "2026-05-17T12:31:10Z"
+}
+```
+
+Reply body format note (important):
+- `POST /api/support/tickets/{id}/reply` now supports both `message` (plain fallback) and `htmlBody`.
+- At least one body input must be present: `message` or `htmlBody`.
+- Inline resized images in normal reply body can be preserved via `htmlBody`.
+
+Reply request (current, supported):
+```json
+{
+	"message": "plain text fallback",
+	"htmlBody": "<p>...</p><img style='width:640px'>",
+	"isInternalNote": false,
+	"attachmentIds": []
+}
+```
+
+GET /api/support/tickets/{id}/activities response item fields:
+- id
+- title
+- type
+- body
+- htmlBody
+- authorId
+- authorName
+- visibility
+- isInternal
+- parentActivityId
+- createdAt
+- attachments[]
+- mentions[]
+- providerMessageId
+- deliveryStatus (queued | sent | failed)
+- deliveredAt
+- failedReason
+- isUnread
+- readAt
+- mentionedCurrentUser
+- mentionedNames
+
+GET /api/support/tickets/{id}/attachments response item fields:
+- id
+- fileName
+- size
+- mimeType
+- uploadedBy
+- uploadedAt
+- visibility
+- ticketId
+- ticketSubject
+- activityId
+- previewUrl (signed)
+- downloadUrl (signed)
+
+POST /api/support/tickets/{id}/attachments/download-all request:
+```json
+{
+	"attachmentIds": ["ATT-1001", "ATT-1002"]
+}
+```
+
+POST /api/support/tickets/{id}/attachments/download-all response:
+```json
+{
+	"downloadUrl": "http://localhost/.../api/support/attachments/bundles/{bundleId}/download?...signature=..."
+}
+```
+
+POST /api/support/tickets/{id}/notifications/dispatch request:
+```json
+{
+	"eventTypes": ["reply", "email", "forward", "internal_mention"],
+	"activityId": "ACT-10011",
+	"channels": ["email", "in_app"]
+}
+```
+
+POST /api/support/tickets/{id}/notifications/dispatch response:
+```json
+{
+	"queuedJobIds": ["uuid-1", "uuid-2", "uuid-3"]
+}
+```
+
+### Runtime Notes
+
+- Existing auth flow remains unchanged.
+- Ticket access control remains policy/resolver-based (view/reply/forward/internal note checks are reused).
+- Email send and notification dispatch are queued with retry/backoff.
+- Activity stream now includes delivery metadata and linked attachment references via activity-attachment pivot.
+
+## Conversation Read-State (Implemented)
+
+Goal
+
+Allow frontend to highlight only unread activities and apply stronger mention styling when current user is mentioned.
+
+### Endpoints
+
+- GET /api/support/tickets/{ticketId}/activities
+- POST /api/support/tickets/{ticketId}/activities/mark-read
+- POST /api/support/tickets/{ticketId}/activities/mark-read-all
+
+### Activities Payload Additions
+
+Each activity now includes:
+- isUnread: boolean
+- readAt: string | null (ISO datetime)
+- mentionedCurrentUser: boolean
+- mentionedNames: string[]
+
+### Mark Read Requests
+
+POST /api/support/tickets/{ticketId}/activities/mark-read request:
+```json
+{
+	"activityIds": ["ACT-1", "ACT-2", "ACT-3"]
+}
+```
+
+POST /api/support/tickets/{ticketId}/activities/mark-read response:
+```json
+{
+	"updated": 3
+}
+```
+
+POST /api/support/tickets/{ticketId}/activities/mark-read-all response:
+```json
+{
+	"updated": 24
+}
+```
+
+### Data Model
+
+Table: support_activity_reads
+- id
+- activity_id
+- user_id
+- read_at
+- created_at
+- updated_at
+
+Unique index:
+- (activity_id, user_id)
+
+### Access Notes
+
+- `mark-read` and `mark-read-all` require bearer token auth (`api.token`).
+- Ticket visibility policy is enforced before updating read-state.
+
+### Frontend Alignment Confirmation
+
+Aligned with current frontend implementation:
+- Popup composer should call `POST /api/support/tickets/{id}/email-send` with `to/cc/bcc/subject/htmlBody/textBody/attachmentIds/parentActivityId`.
+- Normal reply composer can call `POST /api/support/tickets/{id}/reply` with `message` and/or `htmlBody` (at least one required) plus `attachmentIds`.
+- Ticket detail and popup refresh should call `GET /api/support/tickets/{id}/activities` and `GET /api/support/tickets/{id}/attachments`.
+- Download all should call `POST /api/support/tickets/{id}/attachments/download-all` and use returned signed `downloadUrl`.
+- Notification trigger should call `POST /api/support/tickets/{id}/notifications/dispatch`.
+
+Backend status for frontend notes:
+- Delivery status transitions are implemented: email rows move `queued -> sent` on job success and `queued -> failed` on job failure.
+- Activities endpoint already returns per-activity `attachments[]`, `htmlBody`, read-state fields, and email delivery metadata (`providerMessageId`, `deliveryStatus`, `deliveredAt`, `failedReason`).
+
+Environment prerequisite (ops/config):
+- Configure mail provider credentials and sender identity in environment so queued email jobs can deliver through SMTP/provider.

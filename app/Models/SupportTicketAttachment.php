@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class SupportTicketAttachment extends Model
 {
@@ -32,6 +33,19 @@ class SupportTicketAttachment extends Model
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(SupportTicket::class, 'support_ticket_id');
+    }
+
+    /**
+     * @return BelongsToMany<SupportTicketActivity, $this>
+     */
+    public function activities(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            SupportTicketActivity::class,
+            'support_ticket_activity_attachments',
+            'attachment_id',
+            'activity_id',
+        )->withTimestamps();
     }
 
     /**

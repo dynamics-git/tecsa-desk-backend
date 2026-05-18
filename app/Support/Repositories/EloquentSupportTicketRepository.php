@@ -82,7 +82,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             ]);
 
             if (! empty($payload['message'])) {
-                $this->createActivity(
+                $createdActivityId = $this->createActivity(
                     ticketId: $ticket->id,
                     title: 'Ticket created',
                     type: 'ticket-created',
@@ -91,6 +91,8 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
                     authorName: $actor->name,
                     visibility: 'public',
                 );
+
+                $this->attachActivityAttachments($createdActivityId, $ticket->id, $payload['attachmentIds'] ?? []);
             }
 
             $attachmentIds = $payload['attachmentIds'] ?? [];
@@ -236,6 +238,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
         string $ticketId,
         string $message,
         bool $isInternalNote,
+        ?string $htmlBody = null,
         array $attachmentIds = [],
         ?string $parentActivityId = null,
         array $mentions = [],
@@ -247,16 +250,17 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             return null;
         }
 
-        return DB::transaction(function () use ($ticket, $message, $isInternalNote, $attachmentIds, $parentActivityId, $mentions, $currentUser): string {
+        return DB::transaction(function () use ($ticket, $message, $htmlBody, $isInternalNote, $attachmentIds, $parentActivityId, $mentions, $currentUser): string {
             $actor = $this->actor($currentUser);
             $ticket->forceFill(['updated_at' => Carbon::now('UTC')])->save();
             $this->attachReferences($ticket->id, $attachmentIds, $actor->name, $isInternalNote ? 'internal' : 'public', $actor);
 
-            return $this->createActivity(
+            $activityId = $this->createActivity(
                 ticketId: $ticket->id,
                 title: $isInternalNote ? 'Internal note added' : 'Reply sent to requester',
                 type: $isInternalNote ? 'note' : 'reply',
                 message: $message,
+                htmlBody: $htmlBody,
                 authorId: $actor->id,
                 authorName: $actor->name,
                 visibility: $isInternalNote ? 'internal' : 'public',
@@ -264,6 +268,10 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
                 parentActivityId: $parentActivityId,
                 mentions: $mentions,
             );
+
+            $this->attachActivityAttachments($activityId, $ticket->id, $attachmentIds);
+
+            return $activityId;
         });
     }
 
@@ -329,6 +337,8 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
                 relatedEntityId: $relatedEntityId,
             );
 
+            $this->attachActivityAttachments($forwardId, $ticket->id, $attachmentIds);
+
             return ['forwardId' => $forwardId, 'linkedTaskId' => $linkedTaskId];
         });
     }
@@ -385,6 +395,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
         string $title,
         string $type,
         ?string $message = null,
+        ?string $htmlBody = null,
         ?string $authorId = null,
         ?string $authorName = null,
         string $visibility = 'public',
@@ -402,6 +413,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             'title' => $title,
             'type' => $type,
             'message' => $message,
+            'html_body' => $htmlBody,
             'author_name' => $authorName,
             'author_id' => $authorId,
             'visibility' => $visibility,
@@ -562,6 +574,48 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
         }
     }
 
+    /**
+     * @param  array<int, string>  $attachmentIds
+     */
+    private function attachActivityAttachments(string $activityId, string $ticketId, array $attachmentIds): void
+    {
+        $normalizedIds = collect($attachmentIds)
+            ->map(fn ($id): string => trim((string) $id))
+            ->filter(fn (string $id): bool => $id !== '')
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedIds === []) {
+            return;
+        }
+
+        $existingIds = SupportTicketAttachment::query()
+            ->where('support_ticket_id', $ticketId)
+            ->whereIn('id', $normalizedIds)
+            ->pluck('id')
+            ->all();
+
+        if ($existingIds === []) {
+            return;
+        }
+
+        $rows = collect($existingIds)
+            ->map(fn (string $attachmentId): array => [
+                'activity_id' => $activityId,
+                'attachment_id' => $attachmentId,
+                'created_at' => Carbon::now('UTC'),
+                'updated_at' => Carbon::now('UTC'),
+            ])
+            ->all();
+
+        DB::table('support_ticket_activity_attachments')->upsert(
+            $rows,
+            ['activity_id', 'attachment_id'],
+            ['updated_at'],
+        );
+    }
+
     private function actor(?CurrentUser $currentUser): CurrentUser
     {
         return $currentUser ?? new CurrentUser('amit', 'Amit', 'amit@example.com');
@@ -604,6 +658,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
                 'time' => $activity->occurred_at->toIso8601ZuluString(),
                 'type' => $activity->type,
                 'body' => $activity->message,
+                'htmlBody' => $activity->html_body,
                 'authorId' => $activity->author_id,
                 'authorName' => $activity->author_name,
                 'visibility' => $activity->visibility,

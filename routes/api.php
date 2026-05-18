@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\Setup\UserController;
 use App\Http\Controllers\Api\Setup\CustomerUserAccessController;
 use App\Http\Controllers\Api\SupportAttachmentController;
 use App\Http\Controllers\Api\SupportReferenceDataController;
+use App\Http\Controllers\Api\Support\ActivityReadController;
 use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Controllers\Api\UserSecuritySettingsController;
 use Illuminate\Support\Facades\Route;
@@ -59,13 +60,25 @@ Route::prefix('support/tickets')->group(function (): void {
     Route::get('/', [SupportTicketController::class, 'index']);
     Route::post('/', [SupportTicketController::class, 'store']);
     Route::get('/{id}', [SupportTicketController::class, 'show']);
+    Route::get('/{id}/activities', [SupportTicketController::class, 'activities']);
+    Route::post('/{id}/activities/mark-read', [ActivityReadController::class, 'markRead'])->middleware('api.token');
+    Route::post('/{id}/activities/mark-read-all', [ActivityReadController::class, 'markReadAll'])->middleware('api.token');
     Route::get('/{id}/linked-tasks', [SupportTicketController::class, 'linkedTasks']);
     Route::get('/{id}/attachments', [SupportTicketController::class, 'attachments']);
+    Route::post('/{id}/attachments/download-all', [SupportTicketController::class, 'downloadAllAttachments']);
+    Route::post('/{id}/email-send', [SupportTicketController::class, 'emailSend']);
+    Route::post('/{id}/notifications/dispatch', [SupportTicketController::class, 'dispatchNotifications']);
     Route::post('/bulk/assign', [SupportTicketController::class, 'bulkAssign']);
     Route::post('/bulk/status', [SupportTicketController::class, 'bulkStatus']);
     Route::post('/bulk/priority', [SupportTicketController::class, 'bulkPriority']);
     Route::post('/{id}/reply', [SupportTicketController::class, 'reply']);
     Route::post('/{id}/forward', [SupportTicketController::class, 'forward']);
+});
+
+Route::middleware('signed')->group(function (): void {
+    Route::get('support/attachments/{id}/preview', [SupportAttachmentController::class, 'preview'])->name('support.attachments.preview');
+    Route::get('support/attachments/{id}/download', [SupportAttachmentController::class, 'download'])->name('support.attachments.download');
+    Route::get('support/attachments/bundles/{bundleId}/download', [SupportAttachmentController::class, 'bundleDownload'])->name('support.attachments.bundle-download');
 });
 
 Route::middleware('api.token')->group(function (): void {

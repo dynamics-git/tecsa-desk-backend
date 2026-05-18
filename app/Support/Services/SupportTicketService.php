@@ -2,12 +2,14 @@
 
 namespace App\Support\Services;
 
+use App\Models\SupportTicketActivity;
 use App\Support\Auth\CurrentUser;
 use App\Support\DTOs\PaginatedTicketsDto;
 use App\Support\DTOs\TicketDetailDto;
 use App\Support\DTOs\TicketListItemDto;
 use App\Support\Repositories\SupportTicketRepositoryInterface;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 
 final readonly class SupportTicketService
 {
@@ -112,20 +114,31 @@ final readonly class SupportTicketService
     }
 
     /**
-     * @return array{success: true, activityId: string}|null
+     * @return array{success: true, activityId: string, createdAt: string|null}|null
      */
     public function reply(
         string $id,
         string $message,
         bool $isInternalNote,
+        ?string $htmlBody = null,
         array $attachmentIds = [],
         ?string $parentActivityId = null,
         array $mentions = [],
         ?CurrentUser $currentUser = null,
     ): ?array {
-        $activityId = $this->tickets->addReply($id, $message, $isInternalNote, $attachmentIds, $parentActivityId, $mentions, $currentUser);
+        $activityId = $this->tickets->addReply($id, $message, $isInternalNote, $htmlBody, $attachmentIds, $parentActivityId, $mentions, $currentUser);
 
-        return $activityId === null ? null : ['success' => true, 'activityId' => $activityId];
+        if ($activityId === null) {
+            return null;
+        }
+
+        $createdAt = SupportTicketActivity::query()->whereKey($activityId)->value('occurred_at');
+
+        return [
+            'success' => true,
+            'activityId' => $activityId,
+            'createdAt' => $createdAt !== null ? Carbon::parse((string) $createdAt)->toIso8601ZuluString() : null,
+        ];
     }
 
     /**

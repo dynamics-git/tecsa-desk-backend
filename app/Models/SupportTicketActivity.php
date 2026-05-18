@@ -4,7 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SupportTicketActivity extends Model
 {
@@ -19,6 +21,7 @@ class SupportTicketActivity extends Model
         'title',
         'type',
         'message',
+        'html_body',
         'author_name',
         'author_id',
         'visibility',
@@ -41,6 +44,35 @@ class SupportTicketActivity extends Model
     public function mentions(): HasMany
     {
         return $this->hasMany(SupportTicketActivityMention::class, 'activity_id');
+    }
+
+    /**
+     * @return HasMany<SupportActivityRead, $this>
+     */
+    public function reads(): HasMany
+    {
+        return $this->hasMany(SupportActivityRead::class, 'activity_id');
+    }
+
+    /**
+     * @return BelongsToMany<SupportTicketAttachment, $this>
+     */
+    public function attachments(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            SupportTicketAttachment::class,
+            'support_ticket_activity_attachments',
+            'activity_id',
+            'attachment_id',
+        )->withTimestamps();
+    }
+
+    /**
+     * @return HasOne<SupportTicketEmailMessage, $this>
+     */
+    public function emailMessage(): HasOne
+    {
+        return $this->hasOne(SupportTicketEmailMessage::class, 'activity_id');
     }
 
     /**

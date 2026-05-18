@@ -7,15 +7,19 @@ use App\Http\Requests\Support\BulkAssignTicketsRequest;
 use App\Http\Requests\Support\BulkUpdatePriorityRequest;
 use App\Http\Requests\Support\BulkUpdateStatusRequest;
 use App\Http\Requests\Support\CreateTicketRequest;
+use App\Http\Requests\Support\DispatchTicketNotificationsRequest;
+use App\Http\Requests\Support\DownloadAllTicketAttachmentsRequest;
 use App\Http\Requests\Support\ForwardTicketRequest;
 use App\Http\Requests\Support\ListAttachmentsRequest;
 use App\Http\Requests\Support\ListTicketsRequest;
 use App\Http\Requests\Support\ReplyToTicketRequest;
+use App\Http\Requests\Support\SendTicketEmailRequest;
 use App\Models\SupportTicket;
 use App\Models\User;
 use App\Support\Auth\CurrentUser;
 use App\Support\Auth\CurrentUserResolver;
 use App\Support\Auth\SupportAccessResolver;
+use App\Support\Services\SupportConversationService;
 use App\Support\Services\SupportTicketService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +29,7 @@ final class SupportTicketController extends Controller
 {
     public function __construct(
         private readonly SupportTicketService $supportTickets,
+        private readonly SupportConversationService $supportConversation,
         private readonly CurrentUserResolver $currentUserResolver,
         private readonly SupportAccessResolver $supportAccessResolver,
     ) {}
@@ -134,11 +139,112 @@ final class SupportTicketController extends Controller
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
         Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
-        $attachments = $this->supportTickets->ticketAttachments($id, $request->validated());
+        $attachments = $this->supportConversation->ticketAttachments($id, $request->validated());
 
         return $attachments === null
             ? response()->json(['message' => 'Ticket not found.'], 404)
             : response()->json($attachments);
+    }
+
+    /**
+     * GET /api/support/tickets/{id}/activities
+     *
+     * Returns conversation activities including attachments and email delivery metadata.
+     */
+    public function activities(Request $request, string $id): JsonResponse
+    {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
+
+        $activities = $this->supportConversation->activities($id, $currentUser);
+
+        return $activities === null
+            ? response()->json(['message' => 'Ticket not found.'], 404)
+            : response()->json($activities);
+    }
+
+    /**
+     * POST /api/support/tickets/{id}/email-send
+     *
+     * Queues an outbound email and records delivery tracking metadata.
+     */
+    public function emailSend(string $id, SendTicketEmailRequest $request): JsonResponse
+    {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('reply', $record);
+
+        $result = $this->supportConversation->sendEmail($id, $request->validated(), $currentUser);
+
+        return $result === null
+            ? response()->json(['message' => 'Ticket not found.'], 404)
+            : response()->json($result);
+    }
+
+    /**
+     * POST /api/support/tickets/{id}/attachments/download-all
+     *
+     * Returns a signed URL for downloading selected or all ticket attachments as a zip.
+     */
+    public function downloadAllAttachments(string $id, DownloadAllTicketAttachmentsRequest $request): JsonResponse
+    {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
+
+        $result = $this->supportConversation->downloadAllAttachmentBundle($id, $request->validated(), $currentUser);
+
+        return $result === null
+            ? response()->json(['message' => 'No attachments available for export.'], 404)
+            : response()->json($result);
+    }
+
+    /**
+     * POST /api/support/tickets/{id}/notifications/dispatch
+     *
+     * Queues notification dispatch jobs for conversation events.
+     */
+    public function dispatchNotifications(string $id, DispatchTicketNotificationsRequest $request): JsonResponse
+    {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Ticket not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        $policyUser = $this->policyUser($currentUser);
+
+        foreach ($request->validated()['eventTypes'] as $eventType) {
+            match ($eventType) {
+                'reply', 'email' => Gate::forUser($policyUser)->authorize('reply', $record),
+                'forward' => Gate::forUser($policyUser)->authorize('forward', $record),
+                'internal_mention' => Gate::forUser($policyUser)->authorize('internalNote', $record),
+                default => Gate::forUser($policyUser)->authorize('view', $record),
+            };
+        }
+
+        $result = $this->supportConversation->dispatchNotifications($id, $request->validated());
+
+        return $result === null
+            ? response()->json(['message' => 'Ticket not found.'], 404)
+            : response()->json($result);
     }
 
     /**
@@ -260,9 +366,11 @@ final class SupportTicketController extends Controller
         );
 
         $data = $request->validated();
+        $message = $data['message'] ?? trim(strip_tags((string) ($data['htmlBody'] ?? '')));
         $result = $this->supportTickets->reply(
             id: $id,
-            message: $data['message'],
+            message: (string) $message,
+            htmlBody: $data['htmlBody'] ?? null,
             isInternalNote: $data['isInternalNote'],
             attachmentIds: $data['attachmentIds'] ?? [],
             parentActivityId: $data['parentActivityId'] ?? null,

@@ -365,7 +365,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"message\": \"Hi @arka please verify.\",\n  \"isInternalNote\": false,\n  \"attachmentIds\": [\"ATT-1001\"],\n  \"parentActivityId\": \"ACT-9001\",\n  \"mentions\": [\n    {\n      \"id\": \"user_44\",\n      \"kind\": \"user\",\n      \"display\": \"arka\"\n    }\n  ]\n}"
+          "raw": "{\n  \"message\": \"Hi @arka please verify.\",\n  \"htmlBody\": \"<p>Hi @arka please verify.</p><img src='cid:img-1' style='width:640px'>\",\n  \"isInternalNote\": false,\n  \"attachmentIds\": [\"ATT-1001\"],\n  \"parentActivityId\": \"ACT-9001\",\n  \"mentions\": [\n    {\n      \"id\": \"user_44\",\n      \"kind\": \"user\",\n      \"display\": \"arka\"\n    }\n  ]\n}"
         },
         "url": "{{baseUrl}}/api/support/tickets/TK-1048/reply"
       }
@@ -431,6 +431,65 @@
           "raw": "{\n  \"mode\": \"task\",\n  \"createLinkedTask\": true,\n  \"taskTitle\": \"Review attachment workflow\",\n  \"taskAssignee\": \"Amit\",\n  \"comment\": \"Please review this flow.\",\n  \"attachmentIds\": [\"ATT-1001\"]\n}"
         },
         "url": "{{baseUrl}}/api/support/tickets/TK-1048/forward"
+      }
+    },
+    {
+      "name": "Get ticket activities (read-state)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/support/tickets/TK-1048/activities"
+      }
+    },
+    {
+      "name": "Mark selected activities as read",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"activityIds\": [\"ACT-1\", \"ACT-2\"]\n}"
+        },
+        "url": "{{baseUrl}}/api/support/tickets/TK-1048/activities/mark-read"
+      }
+    },
+    {
+      "name": "Mark all activities as read",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/support/tickets/TK-1048/activities/mark-read-all"
       }
     }
   ]
