@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Support;
 
+use App\Support\Enums\TicketCreatedByType;
 use App\Support\Enums\TicketPriority;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -25,6 +26,7 @@ final class CreateTicketRequest extends FormRequest
             'team' => ['required', 'string', 'max:120'],
             'category' => ['required', 'string', 'max:120'],
             'priority' => ['required', Rule::enum(TicketPriority::class)],
+            'createdByType' => ['nullable', Rule::enum(TicketCreatedByType::class)],
             'message' => ['nullable', 'string', 'max:10000'],
             'body' => ['nullable', 'string', 'max:10000'],
             'attachmentIds' => ['nullable', 'array', 'max:25'],
@@ -36,6 +38,7 @@ final class CreateTicketRequest extends FormRequest
     {
         $this->merge([
             'message' => $this->input('message', $this->input('body')),
+            'createdByType' => $this->input('createdByType', $this->input('created_by_type')),
         ]);
     }
 }

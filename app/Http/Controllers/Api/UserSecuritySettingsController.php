@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Support\Auth\CurrentUserResolver;
 use App\Support\Auth\PasswordSecurityService;
+use App\Support\Http\ApiErrorResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -37,11 +38,13 @@ final class UserSecuritySettingsController extends Controller
 
         $user = User::query()->findOrFail((int) $id);
         if ((int) $user->security_version !== (int) $data['version']) {
-            return response()->json([
-                'code' => 'SECURITY_VERSION_CONFLICT',
-                'message' => 'Security settings were modified by another request.',
-                'currentVersion' => (int) $user->security_version,
-            ], 409);
+            return ApiErrorResponse::make(
+                request: $request,
+                status: 409,
+                code: 'SECURITY_VERSION_CONFLICT',
+                message: 'Security settings were modified by another request.',
+                details: ['currentVersion' => (int) $user->security_version],
+            );
         }
 
         $accountLocked = $data['accountLocked'] ?? null;

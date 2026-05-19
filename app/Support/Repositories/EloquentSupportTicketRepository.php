@@ -9,6 +9,7 @@ use App\Models\SupportTicketAttachment;
 use App\Models\SupportTicketLinkedTask;
 use App\Support\Auth\CurrentUser;
 use App\Support\Auth\SupportAccessResolver;
+use App\Support\Enums\TicketCreatedByType;
 use App\Support\Enums\TicketStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
@@ -47,7 +48,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
     {
         $actor = $this->actor($currentUser);
         $query = SupportTicket::query()
-            ->with(['activities.mentions', 'relatedItems'])
+            ->with(['activities.mentions', 'activities.author:id,email', 'activities.emailMessage', 'relatedItems'])
             ->with(['linkedTasks' => fn ($query) => $query->latest(), 'attachments' => fn ($query) => $query->latest('uploaded_at')])
             ->where('id', $id);
         $this->supportAccessResolver->applyTicketScope($query, $actor);
@@ -74,6 +75,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
                 'requester' => $payload['requester'],
                 'team' => $payload['team'],
                 'source' => 'Customer Portal',
+                'created_by_type' => $this->createdByTypeForActor($actor)->value,
                 'category' => $payload['category'],
                 'is_assigned_to_me' => true,
                 'is_waiting_on_customer' => false,
@@ -98,7 +100,14 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             $attachmentIds = $payload['attachmentIds'] ?? [];
             $this->attachReferences($ticket->id, $attachmentIds, $actor->name, 'public', $actor);
 
-            return ['success' => true, 'ticketId' => $ticket->id];
+            $summary = $this->mapTicket($ticket->fresh());
+
+            return [
+                'success' => true,
+                'id' => $ticket->id,
+                'ticketId' => $ticket->id,
+                'ticket' => $summary,
+            ];
         });
     }
 
@@ -628,6 +637,7 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
     {
         $data = [
             'id' => $ticket->id,
+            'ticketId' => $ticket->id,
             'subject' => $ticket->subject,
             'submeta' => $ticket->submeta,
             'customer' => $ticket->customer,
@@ -635,12 +645,15 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             'status' => $ticket->status,
             'agent' => $ticket->agent ?? '',
             'updated' => $ticket->updated_at?->toIso8601ZuluString(),
+            'updatedAt' => $ticket->updated_at?->toIso8601ZuluString(),
             'requester' => $ticket->requester,
             'team' => $ticket->team,
             'source' => $ticket->source,
+            'createdByType' => $ticket->created_by_type ?: TicketCreatedByType::System->value,
             'category' => $ticket->category,
             'isAssignedToMe' => $ticket->is_assigned_to_me,
             'isWaitingOnCustomer' => $ticket->is_waiting_on_customer,
+            'slaState' => $this->slaState($ticket),
             ...$this->operationalIndicators($ticket),
         ];
 
@@ -657,14 +670,25 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
                 'title' => $activity->title,
                 'time' => $activity->occurred_at->toIso8601ZuluString(),
                 'type' => $activity->type,
-                'body' => $activity->message,
-                'htmlBody' => $activity->html_body,
+                'body' => $activity->type === 'email-send'
+                    ? ($activity->emailMessage?->text_body ?? $activity->message)
+                    : $activity->message,
+                'htmlBody' => $activity->type === 'email-send'
+                    ? ($activity->emailMessage?->html_body ?? $activity->html_body)
+                    : $activity->html_body,
                 'authorId' => $activity->author_id,
                 'authorName' => $activity->author_name,
+                'authorEmail' => $activity->author?->email,
+                'senderType' => $this->senderTypeForActivity($ticket, $activity),
                 'visibility' => $activity->visibility,
                 'isInternal' => $activity->is_internal,
                 'relatedEntityId' => $activity->related_entity_id,
                 'parentActivityId' => $activity->parent_activity_id,
+                'recipients' => [
+                    'to' => $activity->emailMessage?->to_recipients ?? [],
+                    'cc' => $activity->emailMessage?->cc_recipients ?? [],
+                    'bcc' => $activity->emailMessage?->bcc_recipients ?? [],
+                ],
                 'mentions' => $activity->mentions->map(fn (SupportTicketActivityMention $mention): array => [
                     'id' => $mention->mentioned_user_id ?? $mention->mentioned_team_id,
                     'display' => $mention->display_name,
@@ -771,6 +795,45 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
         };
     }
 
+    private function createdByTypeForActor(CurrentUser $actor): TicketCreatedByType
+    {
+        $context = $this->supportAccessResolver->authPayload($actor);
+
+        if ((bool) ($context['isAdmin'] ?? false)) {
+            return TicketCreatedByType::Admin;
+        }
+
+        if (($context['userType'] ?? 'Internal') === 'Customer') {
+            return TicketCreatedByType::Customer;
+        }
+
+        return TicketCreatedByType::Agent;
+    }
+
+    private function slaState(SupportTicket $ticket): string
+    {
+        if (in_array($ticket->status, ['Resolved', 'Closed'], true)) {
+            return 'met';
+        }
+
+        $slaResolutionAt = $ticket->sla_resolution_at;
+        if ($slaResolutionAt === null) {
+            return 'unknown';
+        }
+
+        $now = Carbon::now('UTC');
+
+        if ($now->greaterThan($slaResolutionAt)) {
+            return 'breached';
+        }
+
+        if ($now->greaterThanOrEqualTo($slaResolutionAt->copy()->subMinutes(30))) {
+            return 'at_risk';
+        }
+
+        return 'on_track';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -839,5 +902,43 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             'page' => $page,
             'pageSize' => $pageSize,
         ];
+    }
+
+    private function senderTypeForActivity(SupportTicket $ticket, SupportTicketActivity $activity): ?string
+    {
+        $authorId = trim((string) ($activity->author_id ?? ''));
+        $authorName = trim((string) ($activity->author_name ?? ''));
+
+        if ($authorId === '' && $authorName === '') {
+            return 'System';
+        }
+
+        if ($authorId !== '') {
+            $context = $this->supportAccessResolver->authPayload(new CurrentUser(
+                id: $authorId,
+                name: $authorName !== '' ? $authorName : 'Unknown',
+                email: $activity->author?->email,
+            ));
+
+            if ((bool) ($context['isAdmin'] ?? false)) {
+                return 'Admin';
+            }
+
+            if (($context['userType'] ?? 'Internal') === 'Customer') {
+                return 'Requester';
+            }
+
+            return 'Agent';
+        }
+
+        if ($authorName !== '' && strcasecmp($authorName, (string) $ticket->requester) === 0) {
+            return 'Requester';
+        }
+
+        if ($authorName !== '' && strcasecmp($authorName, (string) $ticket->agent) === 0) {
+            return 'Agent';
+        }
+
+        return null;
     }
 }

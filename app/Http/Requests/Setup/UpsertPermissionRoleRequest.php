@@ -51,7 +51,7 @@ class UpsertPermissionRoleRequest extends FormRequest
             'id' => $this->input('id', $this->input('roleId')),
             'name' => $this->input('name', $this->input('roleName', $this->input('role'))),
             'userId' => $this->input('userId'),
-            'userEmail' => $this->input('userEmail'),
+            'userEmail' => $this->normalizeEmail($this->input('userEmail')),
             'userType' => $this->input('userType'),
             'ticketVisibility' => $this->input('ticketVisibility', $this->input('visibilityMode')),
             'permissions' => $this->normalizeArray($this->input('permissions', $this->input('permissionKeys', []))),
@@ -93,5 +93,12 @@ class UpsertPermissionRoleRequest extends FormRequest
         $normalized = strtolower(trim((string) $value));
 
         return in_array($normalized, ['1', 'true', 'yes', 'active'], true);
+    }
+
+    private function normalizeEmail(mixed $value): ?string
+    {
+        $email = strtolower(trim((string) $value));
+
+        return $email === '' ? null : $email;
     }
 }

@@ -76,6 +76,14 @@ class SupportTicketActivity extends Model
     }
 
     /**
+     * @return BelongsTo<User, $this>
+     */
+    public function author(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'author_id');
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

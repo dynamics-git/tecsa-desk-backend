@@ -22,6 +22,7 @@ class SupportTicket extends Model
         'requester',
         'team',
         'source',
+        'created_by_type',
         'category',
         'is_assigned_to_me',
         'is_waiting_on_customer',

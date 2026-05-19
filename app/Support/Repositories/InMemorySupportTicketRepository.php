@@ -50,6 +50,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         $now = $this->now();
         self::$tickets[$ticketId] = [
             'id' => $ticketId,
+            'ticketId' => $ticketId,
             'subject' => $payload['subject'],
             'submeta' => $payload['category'],
             'customer' => $payload['customer'],
@@ -57,12 +58,15 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             'status' => 'Open',
             'agent' => 'Amit',
             'updated' => $now,
+            'updatedAt' => $now,
             'requester' => $payload['requester'],
             'team' => $payload['team'],
             'source' => 'Customer Portal',
+            'createdByType' => 'Agent',
             'category' => $payload['category'],
             'isAssignedToMe' => true,
             'isWaitingOnCustomer' => false,
+            'slaState' => 'on_track',
             'slaFirstResponse' => $now,
             'slaResolution' => $now,
             'activities' => [],
@@ -74,7 +78,12 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             'attachments' => [],
         ];
 
-        return ['success' => true, 'ticketId' => $ticketId];
+        return [
+            'success' => true,
+            'id' => $ticketId,
+            'ticketId' => $ticketId,
+            'ticket' => self::$tickets[$ticketId],
+        ];
     }
 
     public function linkedTasks(string $ticketId): ?array
@@ -116,6 +125,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             $ticket['agent'] = $agent;
             $ticket['isAssignedToMe'] = Str::lower($agent) === 'amit';
             $ticket['updated'] = $this->now();
+            $ticket['updatedAt'] = $ticket['updated'];
             $ticket['activities'][] = [
                 'title' => "{$agent} was assigned the ticket",
                 'time' => $ticket['updated'],
@@ -132,6 +142,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             $ticket['status'] = $status;
             $ticket['isWaitingOnCustomer'] = $status === TicketStatus::PendingCustomer->value;
             $ticket['updated'] = $this->now();
+            $ticket['updatedAt'] = $ticket['updated'];
             $ticket['activities'][] = [
                 'title' => "Status changed to {$status}",
                 'time' => $ticket['updated'],
@@ -147,6 +158,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         return $this->mutateTickets($ticketIds, function (array &$ticket) use ($priority): void {
             $ticket['priority'] = $priority;
             $ticket['updated'] = $this->now();
+            $ticket['updatedAt'] = $ticket['updated'];
             $ticket['activities'][] = [
                 'title' => "Priority changed to {$priority}",
                 'time' => $ticket['updated'],
@@ -175,6 +187,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         $time = $this->now();
 
         self::$tickets[$ticketId]['updated'] = $time;
+        self::$tickets[$ticketId]['updatedAt'] = $time;
         self::$tickets[$ticketId]['activities'][] = [
             'id' => $activityId,
             'title' => $isInternalNote ? 'Internal note added' : 'Reply sent to requester',
@@ -222,6 +235,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         }
 
         self::$tickets[$ticketId]['updated'] = $time;
+        self::$tickets[$ticketId]['updatedAt'] = $time;
         self::$tickets[$ticketId]['activities'][] = [
             'id' => $activityId,
             'title' => $title,
@@ -344,6 +358,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         $tickets = [
             [
                 'id' => 'TK-1048',
+                'ticketId' => 'TK-1048',
                 'subject' => 'Unable to submit claim after document upload',
                 'submeta' => 'Portal / Attachment / Error',
                 'customer' => 'HLIB',
@@ -351,12 +366,15 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
                 'status' => 'Open',
                 'agent' => 'Amit',
                 'updated' => '2026-05-02T10:25:00Z',
+                'updatedAt' => '2026-05-02T10:25:00Z',
                 'requester' => 'Nur Aisyah',
                 'team' => 'Portal Support',
                 'source' => 'Customer Portal',
+                'createdByType' => 'Customer',
                 'category' => 'Claims / Attachments',
                 'isAssignedToMe' => true,
                 'isWaitingOnCustomer' => false,
+                'slaState' => 'on_track',
                 'slaFirstResponse' => '2026-05-02T11:00:00Z',
                 'slaResolution' => '2026-05-02T17:30:00Z',
                 'activities' => [
@@ -369,6 +387,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             ],
             [
                 'id' => 'TK-1047',
+                'ticketId' => 'TK-1047',
                 'subject' => 'Customer portal password reset email not received',
                 'submeta' => 'Portal / Authentication',
                 'customer' => 'Acme Health',
@@ -376,12 +395,15 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
                 'status' => 'In Progress',
                 'agent' => 'Priya',
                 'updated' => '2026-05-02T09:40:00Z',
+                'updatedAt' => '2026-05-02T09:40:00Z',
                 'requester' => 'Jason Lee',
                 'team' => 'Portal Support',
                 'source' => 'Email',
+                'createdByType' => 'Customer',
                 'category' => 'Access / Password Reset',
                 'isAssignedToMe' => false,
                 'isWaitingOnCustomer' => false,
+                'slaState' => 'on_track',
                 'slaFirstResponse' => '2026-05-02T10:15:00Z',
                 'slaResolution' => '2026-05-03T09:30:00Z',
                 'activities' => [
@@ -393,6 +415,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             ],
             [
                 'id' => 'TK-1046',
+                'ticketId' => 'TK-1046',
                 'subject' => 'Missing invoice in billing dashboard',
                 'submeta' => 'Billing / Invoice',
                 'customer' => 'Globex',
@@ -400,12 +423,15 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
                 'status' => 'Pending Customer',
                 'agent' => 'Amit',
                 'updated' => '2026-05-01T16:05:00Z',
+                'updatedAt' => '2026-05-01T16:05:00Z',
                 'requester' => 'Maria Gomez',
                 'team' => 'Billing Support',
                 'source' => 'Customer Portal',
+                'createdByType' => 'Customer',
                 'category' => 'Billing / Documents',
                 'isAssignedToMe' => true,
                 'isWaitingOnCustomer' => true,
+                'slaState' => 'on_track',
                 'slaFirstResponse' => '2026-05-01T17:00:00Z',
                 'slaResolution' => '2026-05-04T17:00:00Z',
                 'activities' => [
@@ -415,6 +441,7 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
             ],
             [
                 'id' => 'TK-1045',
+                'ticketId' => 'TK-1045',
                 'subject' => 'Urgent outage report for API callbacks',
                 'submeta' => 'API / Webhook / Outage',
                 'customer' => 'Northwind',
@@ -422,12 +449,15 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
                 'status' => 'Open',
                 'agent' => 'Mei Lin',
                 'updated' => '2026-05-02T10:10:00Z',
+                'updatedAt' => '2026-05-02T10:10:00Z',
                 'requester' => 'Daniel Tan',
                 'team' => 'Integration Support',
                 'source' => 'Phone',
+                'createdByType' => 'Customer',
                 'category' => 'API / Callbacks',
                 'isAssignedToMe' => false,
                 'isWaitingOnCustomer' => false,
+                'slaState' => 'on_track',
                 'slaFirstResponse' => '2026-05-02T10:20:00Z',
                 'slaResolution' => '2026-05-02T13:00:00Z',
                 'activities' => [

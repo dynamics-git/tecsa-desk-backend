@@ -509,8 +509,8 @@ POST /api/support/tickets/{id}/attachments/download-all response:
 POST /api/support/tickets/{id}/notifications/dispatch request:
 ```json
 {
-	"eventTypes": ["reply", "email", "forward", "internal_mention"],
-	"activityId": "ACT-10011",
+	"event": "reply",
+	"activityId": "ACT-10001",
 	"channels": ["email", "in_app"]
 }
 ```
@@ -518,14 +518,23 @@ POST /api/support/tickets/{id}/notifications/dispatch request:
 POST /api/support/tickets/{id}/notifications/dispatch response:
 ```json
 {
-	"queuedJobIds": ["uuid-1", "uuid-2", "uuid-3"]
+	"queuedJobIds": ["uuid"],
+	"activityId": "ACT-10001",
+	"recipients": {
+		"reply": ["requester@example.com", "agent@example.com"]
+	}
 }
 ```
 
 ### Runtime Notes
-
 - Existing auth flow remains unchanged.
 - Ticket access control remains policy/resolver-based (view/reply/forward/internal note checks are reused).
+
+Recipient resolution rules implemented on backend:
+- Public reply/email events: include requester, assignee, and team watchers/participants.
+- Internal note/internal mention events: include internal users only (never customer requester).
+- Always exclude sender email.
+- Always dedupe recipients.
 - Email send and notification dispatch are queued with retry/backoff.
 - Activity stream now includes delivery metadata and linked attachment references via activity-attachment pivot.
 

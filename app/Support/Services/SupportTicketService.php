@@ -88,33 +88,51 @@ final readonly class SupportTicketService
 
     /**
      * @param  array<int, string>  $ticketIds
-     * @return array{success: true, updatedCount: int}
+     * @return array{success: true, updatedCount: int, tickets: array<int, array<string, mixed>>}
      */
     public function assign(array $ticketIds, string $agent, ?CurrentUser $currentUser = null): array
     {
-        return ['success' => true, 'updatedCount' => $this->tickets->assign($ticketIds, $agent, $currentUser)];
+        $updatedCount = $this->tickets->assign($ticketIds, $agent, $currentUser);
+
+        return [
+            'success' => true,
+            'updatedCount' => $updatedCount,
+            'tickets' => $this->syncPayloads($ticketIds, $currentUser),
+        ];
     }
 
     /**
      * @param  array<int, string>  $ticketIds
-     * @return array{success: true, updatedCount: int}
+     * @return array{success: true, updatedCount: int, tickets: array<int, array<string, mixed>>}
      */
     public function updateStatus(array $ticketIds, string $status, ?CurrentUser $currentUser = null): array
     {
-        return ['success' => true, 'updatedCount' => $this->tickets->updateStatus($ticketIds, $status, $currentUser)];
+        $updatedCount = $this->tickets->updateStatus($ticketIds, $status, $currentUser);
+
+        return [
+            'success' => true,
+            'updatedCount' => $updatedCount,
+            'tickets' => $this->syncPayloads($ticketIds, $currentUser),
+        ];
     }
 
     /**
      * @param  array<int, string>  $ticketIds
-     * @return array{success: true, updatedCount: int}
+     * @return array{success: true, updatedCount: int, tickets: array<int, array<string, mixed>>}
      */
     public function updatePriority(array $ticketIds, string $priority, ?CurrentUser $currentUser = null): array
     {
-        return ['success' => true, 'updatedCount' => $this->tickets->updatePriority($ticketIds, $priority, $currentUser)];
+        $updatedCount = $this->tickets->updatePriority($ticketIds, $priority, $currentUser);
+
+        return [
+            'success' => true,
+            'updatedCount' => $updatedCount,
+            'tickets' => $this->syncPayloads($ticketIds, $currentUser),
+        ];
     }
 
     /**
-     * @return array{success: true, activityId: string, createdAt: string|null}|null
+     * @return array{success: true, activityId: string, createdAt: string|null, ticket: array<string, mixed>|null}|null
      */
     public function reply(
         string $id,
@@ -138,11 +156,12 @@ final readonly class SupportTicketService
             'success' => true,
             'activityId' => $activityId,
             'createdAt' => $createdAt !== null ? Carbon::parse((string) $createdAt)->toIso8601ZuluString() : null,
+            'ticket' => $this->syncPayload($id, $currentUser),
         ];
     }
 
     /**
-     * @return array{success: true, forwardId: string}|null
+     * @return array{success: true, forwardId: string, linkedTaskId: string|null, message: string, ticket: array<string, mixed>|null}|null
      */
     public function forward(string $id, array $payload, ?CurrentUser $currentUser = null): ?array
     {
@@ -155,6 +174,47 @@ final readonly class SupportTicketService
                 'forwardId' => $result['forwardId'],
                 'linkedTaskId' => $result['linkedTaskId'],
                 'message' => 'Ticket forwarded successfully',
+                'ticket' => $this->syncPayload($id, $currentUser),
             ];
+    }
+
+    /**
+     * @param  array<int, string>  $ticketIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncPayloads(array $ticketIds, ?CurrentUser $currentUser = null): array
+    {
+        $snapshots = [];
+
+        foreach (array_values(array_unique($ticketIds)) as $ticketId) {
+            $snapshot = $this->syncPayload($ticketId, $currentUser);
+            if ($snapshot !== null) {
+                $snapshots[] = $snapshot;
+            }
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function syncPayload(string $ticketId, ?CurrentUser $currentUser = null): ?array
+    {
+        $ticket = $this->tickets->find($ticketId, $currentUser);
+        if ($ticket === null) {
+            return null;
+        }
+
+        return [
+            'id' => $ticket['id'],
+            'ticketId' => $ticket['ticketId'] ?? $ticket['id'],
+            'status' => $ticket['status'],
+            'priority' => $ticket['priority'],
+            'createdByType' => $ticket['createdByType'] ?? 'System',
+            'updatedAt' => $ticket['updatedAt'] ?? $ticket['updated'] ?? null,
+            'waitingOn' => $ticket['waitingOn'] ?? null,
+            'slaState' => $ticket['slaState'] ?? 'unknown',
+        ];
     }
 }

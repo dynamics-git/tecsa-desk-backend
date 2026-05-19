@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Support\Auth\CurrentUser;
 use App\Support\Auth\CurrentUserResolver;
 use App\Support\Auth\SupportAccessResolver;
+use App\Support\Http\ApiErrorResponse;
 use App\Support\Services\SupportConversationService;
 use App\Support\Services\SupportTicketService;
 use Illuminate\Http\JsonResponse;
@@ -63,9 +64,10 @@ final class SupportTicketController extends Controller
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
 
         if (! $this->supportAccessResolver->canCreateTicket($currentUser, (string) $request->input('customer'))) {
-            return response()->json([
-                'message' => 'Customer scope does not allow ticket creation for this account.',
-            ], 403);
+            return ApiErrorResponse::forbidden(
+                request: $request,
+                message: 'Customer scope does not allow ticket creation for this account.',
+            );
         }
 
         return response()->json($this->supportTickets->create(
@@ -90,7 +92,7 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
@@ -98,7 +100,7 @@ final class SupportTicketController extends Controller
         $ticket = $this->supportTickets->detail($id, $currentUser);
 
         return $ticket === null
-            ? response()->json(['message' => 'Ticket not found.'], 404)
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
             : response()->json($ticket->toArray());
     }
 
@@ -112,7 +114,7 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
@@ -120,7 +122,7 @@ final class SupportTicketController extends Controller
         $tasks = $this->supportTickets->linkedTasks($id);
 
         return $tasks === null
-            ? response()->json(['message' => 'Ticket not found.'], 404)
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
             : response()->json($tasks);
     }
 
@@ -134,7 +136,7 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
@@ -142,7 +144,7 @@ final class SupportTicketController extends Controller
         $attachments = $this->supportConversation->ticketAttachments($id, $request->validated());
 
         return $attachments === null
-            ? response()->json(['message' => 'Ticket not found.'], 404)
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
             : response()->json($attachments);
     }
 
@@ -156,7 +158,7 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
@@ -165,7 +167,7 @@ final class SupportTicketController extends Controller
         $activities = $this->supportConversation->activities($id, $currentUser);
 
         return $activities === null
-            ? response()->json(['message' => 'Ticket not found.'], 404)
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
             : response()->json($activities);
     }
 
@@ -179,7 +181,7 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
@@ -188,7 +190,7 @@ final class SupportTicketController extends Controller
         $result = $this->supportConversation->sendEmail($id, $request->validated(), $currentUser);
 
         return $result === null
-            ? response()->json(['message' => 'Ticket not found.'], 404)
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
             : response()->json($result);
     }
 
@@ -202,7 +204,7 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
@@ -211,7 +213,7 @@ final class SupportTicketController extends Controller
         $result = $this->supportConversation->downloadAllAttachmentBundle($id, $request->validated(), $currentUser);
 
         return $result === null
-            ? response()->json(['message' => 'No attachments available for export.'], 404)
+            ? ApiErrorResponse::notFound($request, 'No attachments available for export.')
             : response()->json($result);
     }
 
@@ -225,13 +227,14 @@ final class SupportTicketController extends Controller
         $record = SupportTicket::query()->find($id);
 
         if ($record === null) {
-            return response()->json(['message' => 'Ticket not found.'], 404);
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
         }
 
         $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
         $policyUser = $this->policyUser($currentUser);
+        $eventTypes = array_values(array_unique($request->validated('eventTypes', [$request->validated('event')])));
 
-        foreach ($request->validated()['eventTypes'] as $eventType) {
+        foreach ($eventTypes as $eventType) {
             match ($eventType) {
                 'reply', 'email' => Gate::forUser($policyUser)->authorize('reply', $record),
                 'forward' => Gate::forUser($policyUser)->authorize('forward', $record),
@@ -240,10 +243,13 @@ final class SupportTicketController extends Controller
             };
         }
 
-        $result = $this->supportConversation->dispatchNotifications($id, $request->validated());
+        $result = $this->supportConversation->dispatchNotifications($id, [
+            ...$request->validated(),
+            'eventTypes' => $eventTypes,
+        ]);
 
         return $result === null
-            ? response()->json(['message' => 'Ticket not found.'], 404)
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
             : response()->json($result);
     }
 

@@ -12,10 +12,13 @@ final readonly class ActivityDto
         public ?string $body = null,
         public ?string $authorId = null,
         public ?string $authorName = null,
+        public ?string $authorEmail = null,
+        public ?string $senderType = null,
         public string $visibility = 'public',
         public bool $isInternal = false,
         public ?string $relatedEntityId = null,
         public ?string $parentActivityId = null,
+        public array $recipients = [],
         public array $mentions = [],
     ) {}
 
@@ -32,10 +35,13 @@ final readonly class ActivityDto
             'body' => $this->body,
             'authorId' => $this->authorId,
             'authorName' => $this->authorName,
+            'authorEmail' => $this->authorEmail,
+            'senderType' => $this->senderType,
             'visibility' => $this->visibility,
             'isInternal' => $this->isInternal,
             'relatedEntityId' => $this->relatedEntityId,
             'parentActivityId' => $this->parentActivityId,
+            'recipients' => $this->recipients,
             'mentions' => $this->mentions,
         ];
     }

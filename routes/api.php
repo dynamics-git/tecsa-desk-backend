@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthPasswordController;
 use App\Http\Controllers\Api\Setup\CategoryController;
 use App\Http\Controllers\Api\Setup\CustomerController;
 use App\Http\Controllers\Api\Setup\MacroController;
+use App\Http\Controllers\Api\Setup\MailConfigController;
 use App\Http\Controllers\Api\Setup\QueueController;
 use App\Http\Controllers\Api\Setup\SlaPolicyController;
 use App\Http\Controllers\Api\Setup\SupportPermissionRoleController;
@@ -37,6 +38,10 @@ Route::middleware('api.token')->prefix('auth')->group(function (): void {
 });
 
 Route::middleware('api.token')->prefix('setup')->group(function (): void {
+    Route::get('mail-config', [MailConfigController::class, 'show']);
+    Route::put('mail-config', [MailConfigController::class, 'update']);
+    Route::post('mail-config/test-connection', [MailConfigController::class, 'testConnection']);
+
     Route::apiResource('users', UserController::class);
     Route::apiResource('customers', CustomerController::class);
     Route::apiResource('teams', TeamController::class);

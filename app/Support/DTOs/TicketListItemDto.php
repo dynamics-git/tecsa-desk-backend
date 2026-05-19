@@ -13,9 +13,11 @@ final readonly class TicketListItemDto
         public string $status,
         public string $agent,
         public string $updated,
+        public string $updatedAt,
         public string $requester,
         public string $team,
         public string $source,
+        public string $createdByType,
         public string $category,
         public bool $isAssignedToMe,
         public bool $isWaitingOnCustomer,
@@ -27,6 +29,7 @@ final readonly class TicketListItemDto
         public bool $hasAttachments,
         public int $attachmentCount,
         public ?string $waitingOn,
+        public string $slaState,
     ) {}
 
     /**
@@ -43,9 +46,11 @@ final readonly class TicketListItemDto
             status: $ticket['status'],
             agent: $ticket['agent'],
             updated: $ticket['updated'],
+            updatedAt: $ticket['updatedAt'] ?? $ticket['updated'],
             requester: $ticket['requester'],
             team: $ticket['team'],
             source: $ticket['source'],
+            createdByType: $ticket['createdByType'] ?? 'System',
             category: $ticket['category'],
             isAssignedToMe: $ticket['isAssignedToMe'],
             isWaitingOnCustomer: $ticket['isWaitingOnCustomer'],
@@ -57,6 +62,7 @@ final readonly class TicketListItemDto
             hasAttachments: $ticket['hasAttachments'] ?? false,
             attachmentCount: $ticket['attachmentCount'] ?? 0,
             waitingOn: $ticket['waitingOn'] ?? null,
+            slaState: $ticket['slaState'] ?? 'unknown',
         );
     }
 
@@ -74,9 +80,11 @@ final readonly class TicketListItemDto
             'status' => $this->status,
             'agent' => $this->agent,
             'updated' => $this->updated,
+            'updatedAt' => $this->updatedAt,
             'requester' => $this->requester,
             'team' => $this->team,
             'source' => $this->source,
+            'createdByType' => $this->createdByType,
             'category' => $this->category,
             'isAssignedToMe' => $this->isAssignedToMe,
             'isWaitingOnCustomer' => $this->isWaitingOnCustomer,
@@ -88,6 +96,7 @@ final readonly class TicketListItemDto
             'hasAttachments' => $this->hasAttachments,
             'attachmentCount' => $this->attachmentCount,
             'waitingOn' => $this->waitingOn,
+            'slaState' => $this->slaState,
         ];
     }
 }

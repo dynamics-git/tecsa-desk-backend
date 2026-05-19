@@ -3,20 +3,42 @@
 namespace App\Support\Services\Conversation;
 
 use App\Models\SupportTicketEmailMessage;
+use App\Support\Services\Mail\SupportMailSettingsService;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 class SmtpSupportConversationEmailProvider implements SupportConversationEmailProviderInterface
 {
+    public function __construct(
+        private readonly SupportMailSettingsService $mailSettings,
+    ) {}
+
     /**
      * @param  array<int, array{id: string, fileName: string, disk: string, path: string}>  $attachments
      * @return array{providerMessageId: string, deliveryStatus: string, deliveredAt: string|null}
      */
     public function send(SupportTicketEmailMessage $message, array $attachments): array
     {
-        Mail::raw($this->bodyForMessage($message), function ($mail) use ($message, $attachments): void {
+        $effective = $this->mailSettings->effectiveSensitive();
+        $mailerName = (string) config('mail.default', 'smtp');
+
+        if ((bool) ($effective['isActive'] ?? true)) {
+            $mailerName = 'support_runtime';
+            Config::set('mail.mailers.'.$mailerName, $this->mailSettings->runtimeMailerConfig($effective));
+        }
+
+        Mail::mailer($mailerName)->raw($this->bodyForMessage($message), function ($mail) use ($message, $attachments, $effective): void {
             $mail->to($message->to_recipients ?? []);
+
+            if (is_string($effective['fromAddress'] ?? null) && ($effective['fromAddress'] ?? '') !== '') {
+                $mail->from((string) $effective['fromAddress'], (string) ($effective['fromName'] ?? 'Support'));
+            }
+
+            if (is_string($effective['replyToAddress'] ?? null) && ($effective['replyToAddress'] ?? '') !== '') {
+                $mail->replyTo((string) $effective['replyToAddress']);
+            }
 
             if (($message->cc_recipients ?? []) !== []) {
                 $mail->cc($message->cc_recipients);

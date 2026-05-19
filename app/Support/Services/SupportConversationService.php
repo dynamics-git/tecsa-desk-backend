@@ -10,8 +10,14 @@ use App\Models\SupportTicket;
 use App\Models\SupportTicketActivity;
 use App\Models\SupportTicketAttachment;
 use App\Models\SupportTicketEmailMessage;
+use App\Models\SupportTicketActivityMention;
 use App\Models\SupportTicketNotificationDispatch;
+use App\Models\SupportPermissionRole;
+use App\Models\SupportUserScope;
+use App\Models\User;
+use App\Models\CustomerUserAccess;
 use App\Support\Auth\CurrentUser;
+use App\Support\Auth\SupportAccessResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +28,10 @@ use ZipArchive;
 
 class SupportConversationService
 {
+    public function __construct(
+        private readonly SupportAccessResolver $supportAccessResolver,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>|null
@@ -38,6 +48,11 @@ class SupportConversationService
             $now = Carbon::now('UTC');
             $activityId = $this->nextActivityId();
             $providerMessageId = 'queued-'.Str::uuid()->toString();
+            $textBody = $payload['textBody'] ?? null;
+            $htmlBody = $payload['htmlBody'] ?? null;
+            $activityMessage = is_string($textBody) && trim($textBody) !== ''
+                ? $textBody
+                : (is_string($htmlBody) && trim($htmlBody) !== '' ? strip_tags($htmlBody) : $payload['subject']);
 
             SupportTicketActivity::query()->create([
                 'id' => $activityId,
@@ -45,7 +60,8 @@ class SupportConversationService
                 'parent_activity_id' => $payload['parentActivityId'] ?? null,
                 'title' => 'Email queued to recipients',
                 'type' => 'email-send',
-                'message' => $payload['subject'],
+                'message' => $activityMessage,
+                'html_body' => $htmlBody,
                 'author_name' => $currentUser->name,
                 'author_id' => $currentUser->id,
                 'visibility' => 'public',
@@ -65,8 +81,8 @@ class SupportConversationService
                 'cc_recipients' => array_values(array_unique($payload['cc'] ?? [])),
                 'bcc_recipients' => array_values(array_unique($payload['bcc'] ?? [])),
                 'subject' => $payload['subject'],
-                'html_body' => $payload['htmlBody'] ?? null,
-                'text_body' => $payload['textBody'] ?? null,
+                'html_body' => $htmlBody,
+                'text_body' => $textBody,
                 'queued_at' => $now,
             ]);
 
@@ -93,7 +109,7 @@ class SupportConversationService
         }
 
         $activities = SupportTicketActivity::query()
-            ->with(['mentions', 'attachments', 'emailMessage'])
+            ->with(['mentions', 'attachments', 'emailMessage', 'author:id,email'])
             ->where('support_ticket_id', $ticketId)
             ->orderByDesc('occurred_at')
             ->orderByDesc('id')
@@ -107,6 +123,7 @@ class SupportConversationService
 
         return $activities
             ->map(fn (SupportTicketActivity $activity): array => $this->mapActivity(
+                ticket: $ticket,
                 activity: $activity,
                 currentUser: $currentUser,
                 readState: $readStates->get($activity->id),
@@ -285,17 +302,36 @@ class SupportConversationService
      */
     public function dispatchNotifications(string $ticketId, array $payload): ?array
     {
-        if (! SupportTicket::query()->whereKey($ticketId)->exists()) {
+        $ticket = SupportTicket::query()->whereKey($ticketId)->first();
+
+        if ($ticket === null) {
             return null;
         }
 
         $eventTypes = array_values(array_unique($payload['eventTypes'] ?? []));
         $channels = $payload['channels'] ?? [];
         $activityId = $payload['activityId'] ?? null;
+
+        if (! is_string($activityId) || $activityId === '') {
+            return null;
+        }
+
+        $activity = SupportTicketActivity::query()
+            ->with(['author:id,email', 'mentions'])
+            ->where('support_ticket_id', $ticketId)
+            ->whereKey($activityId)
+            ->first();
+
+        if ($activity === null) {
+            return null;
+        }
+
         $jobIds = [];
+        $recipientMatrix = [];
 
         foreach ($eventTypes as $eventType) {
             $jobUuid = (string) Str::uuid();
+            $recipientEmails = $this->resolveRecipientEmails($ticket, $activity, (string) $eventType);
 
             $dispatch = SupportTicketNotificationDispatch::query()->create([
                 'support_ticket_id' => $ticketId,
@@ -309,9 +345,239 @@ class SupportConversationService
 
             DispatchSupportTicketNotificationJob::dispatch((int) $dispatch->id);
             $jobIds[] = $jobUuid;
+            $recipientMatrix[$eventType] = $recipientEmails;
         }
 
-        return ['queuedJobIds' => $jobIds];
+        return [
+            'queuedJobIds' => $jobIds,
+            'activityId' => $activityId,
+            'recipients' => $recipientMatrix,
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveRecipientEmails(SupportTicket $ticket, SupportTicketActivity $activity, string $eventType): array
+    {
+        $internalOnly = $eventType === 'internal_mention' || (bool) $activity->is_internal;
+
+        $requesterEmail = $this->resolveRequesterEmail($ticket);
+        $assigneeEmail = $this->resolveAssigneeEmail($ticket);
+        $teamParticipantEmails = $this->resolveTeamParticipantEmails($ticket);
+        $activityParticipantEmails = $this->resolveActivityParticipantEmails($ticket, $activity);
+        $senderEmail = $this->resolveSenderEmail($activity);
+
+        $emails = [
+            ...$teamParticipantEmails,
+            ...$activityParticipantEmails,
+            $assigneeEmail,
+        ];
+
+        if (! $internalOnly) {
+            $emails[] = $requesterEmail;
+        }
+
+        return $this->normalizeEmailList($emails, $senderEmail);
+    }
+
+    private function resolveSenderEmail(SupportTicketActivity $activity): ?string
+    {
+        $authorEmail = $activity->author?->email;
+
+        if (is_string($authorEmail) && $authorEmail !== '') {
+            return mb_strtolower(trim($authorEmail));
+        }
+
+        if (is_string($activity->author_id) && $activity->author_id !== '') {
+            $resolvedById = User::query()->whereKey($activity->author_id)->value('email');
+            if (is_string($resolvedById) && $resolvedById !== '') {
+                return mb_strtolower(trim($resolvedById));
+            }
+        }
+
+        return $this->resolveUserIdentifierToEmail($activity->author_name);
+    }
+
+    private function resolveRequesterEmail(SupportTicket $ticket): ?string
+    {
+        $fromUser = User::query()->where('name', $ticket->requester)->value('email');
+        if (is_string($fromUser) && $fromUser !== '') {
+            return mb_strtolower(trim($fromUser));
+        }
+
+        $fromAccess = CustomerUserAccess::query()
+            ->where('is_active', true)
+            ->where('user_name', $ticket->requester)
+            ->where(function ($query) use ($ticket): void {
+                $query->where('customer_name', $ticket->customer)
+                    ->orWhere('customer_id', $ticket->customer);
+            })
+            ->value('user_email');
+
+        return is_string($fromAccess) && $fromAccess !== '' ? mb_strtolower(trim($fromAccess)) : null;
+    }
+
+    private function resolveAssigneeEmail(SupportTicket $ticket): ?string
+    {
+        $fromUser = User::query()->where('name', $ticket->agent)->value('email');
+        if (is_string($fromUser) && $fromUser !== '') {
+            return mb_strtolower(trim($fromUser));
+        }
+
+        $fromScope = SupportUserScope::query()
+            ->where('is_active', true)
+            ->where('user_name', $ticket->agent)
+            ->value('user_email');
+
+        return is_string($fromScope) && $fromScope !== '' ? mb_strtolower(trim($fromScope)) : null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveTeamParticipantEmails(SupportTicket $ticket): array
+    {
+        $teamKeys = $this->teamMatchKeys($ticket->team);
+
+        $scopeEmails = SupportUserScope::query()
+            ->where('is_active', true)
+            ->whereNotNull('user_email')
+            ->get(['user_email', 'team_ids'])
+            ->filter(function (SupportUserScope $scope) use ($teamKeys): bool {
+                $scopeTeams = collect($scope->team_ids ?? [])
+                    ->map(fn ($team): string => mb_strtolower(trim((string) $team)))
+                    ->filter(fn (string $team): bool => $team !== '')
+                    ->all();
+
+                return array_intersect($scopeTeams, $teamKeys) !== [];
+            })
+            ->pluck('user_email')
+            ->all();
+
+        $roleEmails = SupportPermissionRole::query()
+            ->where('is_active', true)
+            ->whereNotNull('user_email')
+            ->get(['user_email', 'team_ids'])
+            ->filter(function (SupportPermissionRole $role) use ($teamKeys): bool {
+                $roleTeams = collect($role->team_ids ?? [])
+                    ->map(fn ($team): string => mb_strtolower(trim((string) $team)))
+                    ->filter(fn (string $team): bool => $team !== '')
+                    ->all();
+
+                return array_intersect($roleTeams, $teamKeys) !== [];
+            })
+            ->pluck('user_email')
+            ->all();
+
+        return $this->normalizeEmailList([...$scopeEmails, ...$roleEmails]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveActivityParticipantEmails(SupportTicket $ticket, SupportTicketActivity $activity): array
+    {
+        $authorEmails = SupportTicketActivity::query()
+            ->with('author:id,email')
+            ->where('support_ticket_id', $ticket->id)
+            ->get()
+            ->map(fn (SupportTicketActivity $item): ?string => $item->author?->email)
+            ->all();
+
+        $mentionEmails = $activity->mentions
+            ->map(fn (SupportTicketActivityMention $mention): ?string => $this->resolveUserIdentifierToEmail($mention->mentioned_user_id))
+            ->all();
+
+        return $this->normalizeEmailList([...$authorEmails, ...$mentionEmails]);
+    }
+
+    private function resolveUserIdentifierToEmail(?string $identifier): ?string
+    {
+        $id = trim((string) $identifier);
+        if ($id === '') {
+            return null;
+        }
+
+        if (filter_var($id, FILTER_VALIDATE_EMAIL)) {
+            return mb_strtolower($id);
+        }
+
+        $fromUser = User::query()
+            ->where('id', $id)
+            ->orWhere('email', $id)
+            ->orWhere('name', $id)
+            ->value('email');
+
+        if (is_string($fromUser) && $fromUser !== '') {
+            return mb_strtolower(trim($fromUser));
+        }
+
+        foreach ([SupportUserScope::class, SupportPermissionRole::class, CustomerUserAccess::class] as $modelClass) {
+            $email = $modelClass::query()
+                ->where('user_id', $id)
+                ->orWhere('user_email', $id)
+                ->orWhere('user_name', $id)
+                ->value('user_email');
+
+            if (is_string($email) && $email !== '') {
+                return mb_strtolower(trim($email));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, string|null>  $emails
+     * @return array<int, string>
+     */
+    private function normalizeEmailList(array $emails, ?string $exclude = null): array
+    {
+        $normalizedExclude = $exclude !== null ? mb_strtolower(trim($exclude)) : null;
+
+        return collect($emails)
+            ->map(fn ($email): string => mb_strtolower(trim((string) $email)))
+            ->filter(fn (string $email): bool => $this->isEmailLikeIdentifier($email))
+            ->reject(fn (string $email): bool => $normalizedExclude !== null && $email === $normalizedExclude)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function isEmailLikeIdentifier(string $email): bool
+    {
+        if ($email === '' || str_contains($email, ' ')) {
+            return false;
+        }
+
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
+            return true;
+        }
+
+        if (! str_contains($email, '@')) {
+            return false;
+        }
+
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+
+        return $local !== '' && $domain !== '';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function teamMatchKeys(?string $team): array
+    {
+        $raw = mb_strtolower(trim((string) $team));
+        if ($raw === '') {
+            return [];
+        }
+
+        $slug = str_replace(' ', '-', $raw);
+        $compact = str_replace(' ', '', $raw);
+
+        return array_values(array_unique([$raw, $slug, $compact]));
     }
 
     /**
@@ -379,8 +645,15 @@ class SupportConversationService
     /**
      * @return array<string, mixed>
      */
-    private function mapActivity(SupportTicketActivity $activity, CurrentUser $currentUser, ?SupportActivityRead $readState = null): array
+    private function mapActivity(SupportTicket $ticket, SupportTicketActivity $activity, CurrentUser $currentUser, ?SupportActivityRead $readState = null): array
     {
+        $activityBody = $activity->type === 'email-send'
+            ? ($activity->emailMessage?->text_body ?? $activity->message)
+            : $activity->message;
+        $activityHtmlBody = $activity->type === 'email-send'
+            ? ($activity->emailMessage?->html_body ?? $activity->html_body)
+            : $activity->html_body;
+
         $mentions = $activity->mentions->map(fn ($mention): array => [
             'id' => $mention->mentioned_user_id ?? $mention->mentioned_team_id,
             'display' => $mention->display_name,
@@ -399,16 +672,23 @@ class SupportConversationService
             'id' => $activity->id,
             'title' => $activity->title,
             'type' => $activity->type,
-            'body' => $activity->message,
-            'htmlBody' => $activity->html_body,
+            'body' => $activityBody,
+            'htmlBody' => $activityHtmlBody,
             'authorId' => $activity->author_id,
             'authorName' => $activity->author_name,
+            'authorEmail' => $activity->author?->email,
+            'senderType' => $this->senderTypeForActivity($ticket, $activity),
             'visibility' => $activity->visibility,
             'isInternal' => (bool) $activity->is_internal,
             'parentActivityId' => $activity->parent_activity_id,
             'createdAt' => $activity->occurred_at?->toIso8601ZuluString(),
             'attachments' => $activity->attachments->map(fn (SupportTicketAttachment $attachment): array => $this->mapAttachment($attachment))->all(),
             'mentions' => $mentions,
+            'recipients' => [
+                'to' => $activity->emailMessage?->to_recipients ?? [],
+                'cc' => $activity->emailMessage?->cc_recipients ?? [],
+                'bcc' => $activity->emailMessage?->bcc_recipients ?? [],
+            ],
             'providerMessageId' => $activity->emailMessage?->provider_message_id,
             'deliveryStatus' => $activity->emailMessage?->delivery_status,
             'deliveredAt' => $activity->emailMessage?->delivered_at?->toIso8601ZuluString(),
@@ -418,6 +698,44 @@ class SupportConversationService
             'mentionedCurrentUser' => $this->mentionedCurrentUser($mentions, $currentUser),
             'mentionedNames' => $mentionedNames,
         ];
+    }
+
+    private function senderTypeForActivity(SupportTicket $ticket, SupportTicketActivity $activity): ?string
+    {
+        $authorId = trim((string) ($activity->author_id ?? ''));
+        $authorName = trim((string) ($activity->author_name ?? ''));
+
+        if ($authorId === '' && $authorName === '') {
+            return 'System';
+        }
+
+        if ($authorId !== '') {
+            $context = $this->supportAccessResolver->authPayload(new CurrentUser(
+                id: $authorId,
+                name: $authorName !== '' ? $authorName : 'Unknown',
+                email: $activity->author?->email,
+            ));
+
+            if ((bool) ($context['isAdmin'] ?? false)) {
+                return 'Admin';
+            }
+
+            if (($context['userType'] ?? 'Internal') === 'Customer') {
+                return 'Requester';
+            }
+
+            return 'Agent';
+        }
+
+        if ($authorName !== '' && strcasecmp($authorName, (string) $ticket->requester) === 0) {
+            return 'Requester';
+        }
+
+        if ($authorName !== '' && strcasecmp($authorName, (string) $ticket->agent) === 0) {
+            return 'Agent';
+        }
+
+        return null;
     }
 
     /**

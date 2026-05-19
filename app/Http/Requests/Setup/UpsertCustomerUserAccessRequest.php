@@ -44,7 +44,7 @@ class UpsertCustomerUserAccessRequest extends FormRequest
             'id' => $this->input('id'),
             'userId' => $this->input('userId'),
             'userName' => $this->input('userName'),
-            'userEmail' => $this->input('userEmail'),
+            'userEmail' => $this->normalizeEmail($this->input('userEmail')),
             'customerId' => $this->input('customerId'),
             'customerName' => $this->input('customerName'),
             'accessLevel' => $this->input('accessLevel'),
@@ -68,5 +68,12 @@ class UpsertCustomerUserAccessRequest extends FormRequest
         $normalized = strtolower(trim((string) $value));
 
         return in_array($normalized, ['1', 'true', 'yes', 'active'], true);
+    }
+
+    private function normalizeEmail(mixed $value): ?string
+    {
+        $email = strtolower(trim((string) $value));
+
+        return $email === '' ? null : $email;
     }
 }

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Auth\CurrentUserResolver;
 use App\Support\Auth\PasswordSecurityService;
 use App\Support\Auth\SupportAccessResolver;
+use App\Support\Http\ApiErrorResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -43,20 +44,26 @@ final class AuthController extends Controller
         $user = User::query()->where('email', $data['email'])->first();
 
         if ($user !== null && ! (bool) $user->is_active) {
-            return response()->json([
-                'code' => 'ACCOUNT_INACTIVE',
-                'message' => 'Account is inactive.',
-                'nextAction' => 'contact_admin',
-            ], 403);
+            return ApiErrorResponse::make(
+                request: $request,
+                status: 403,
+                code: 'ACCOUNT_INACTIVE',
+                message: 'Account is inactive.',
+                details: ['nextAction' => 'contact_admin'],
+            );
         }
 
         if ($user !== null && $user->locked_until !== null && $user->locked_until->isFuture()) {
-            return response()->json([
-                'code' => 'ACCOUNT_LOCKED',
-                'message' => 'Account is locked.',
-                'lockedUntil' => $user->locked_until->toIso8601ZuluString(),
-                'nextAction' => 'contact_admin',
-            ], 423);
+            return ApiErrorResponse::make(
+                request: $request,
+                status: 423,
+                code: 'ACCOUNT_LOCKED',
+                message: 'Account is locked.',
+                details: [
+                    'lockedUntil' => $user->locked_until->toIso8601ZuluString(),
+                    'nextAction' => 'contact_admin',
+                ],
+            );
         }
 
         if ($user === null || ! Hash::check($data['password'], $user->password)) {
@@ -72,12 +79,13 @@ final class AuthController extends Controller
                 $user->save();
             }
 
-            return response()->json([
-                'message' => 'Invalid credentials.',
-                'errors' => [
+            return ApiErrorResponse::validation(
+                request: $request,
+                message: 'Invalid credentials.',
+                errors: [
                     'email' => ['The provided credentials are invalid.'],
                 ],
-            ], 422);
+            );
         }
 
         $user->forceFill([
@@ -93,7 +101,7 @@ final class AuthController extends Controller
         $currentUser = $this->currentUserResolver->fromRequest($request);
 
         if ($currentUser === null) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
+            return ApiErrorResponse::unauthenticated($request);
         }
 
         $user = ctype_digit($currentUser->id) ? User::query()->find((int) $currentUser->id) : null;

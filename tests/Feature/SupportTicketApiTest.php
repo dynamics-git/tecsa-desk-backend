@@ -287,14 +287,37 @@ class SupportTicketApiTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('success', true)
-            ->assertJsonStructure(['ticketId']);
+            ->assertJsonPath('id', fn ($value) => is_string($value) && str_starts_with($value, 'TK-'))
+            ->assertJsonPath('ticketId', fn ($value) => is_string($value) && str_starts_with($value, 'TK-'))
+            ->assertJsonPath('ticket.id', fn ($value) => is_string($value) && str_starts_with($value, 'TK-'))
+            ->assertJsonPath('ticket.createdByType', 'Agent')
+            ->assertJsonStructure(['id', 'ticketId', 'ticket' => ['id', 'createdByType', 'updatedAt', 'slaState']]);
 
         $detail = $this->getJson('/api/support/tickets/'.$response->json('ticketId'));
 
         $detail
             ->assertOk()
+            ->assertJsonPath('createdByType', 'Agent')
             ->assertJsonPath('attachmentSummary.count', 1)
             ->assertJsonPath('attachments.0.id', 'ATT-2001');
+    }
+
+    public function test_create_ticket_rejects_unknown_created_by_type(): void
+    {
+        $response = $this->postJson('/api/support/tickets', [
+            'subject' => 'Unknown origin test',
+            'customer' => 'HLIB',
+            'requester' => 'Nur Aisyah',
+            'team' => 'Portal Support',
+            'category' => 'Portal / Error',
+            'priority' => 'High',
+            'message' => 'Please check this issue.',
+            'createdByType' => 'Partner',
+        ]);
+
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('createdByType');
     }
 
     public function test_it_returns_global_attachment_lookup(): void
@@ -463,7 +486,10 @@ class SupportTicketApiTest extends TestCase
             ->assertJson([
                 'success' => true,
                 'updatedCount' => 2,
-            ]);
+            ])
+            ->assertJsonPath('tickets.0.createdByType', fn ($value) => in_array($value, ['Customer', 'Agent', 'Admin', 'System'], true))
+            ->assertJsonPath('tickets.0.updatedAt', fn ($value) => is_string($value) && $value !== '')
+            ->assertJsonPath('tickets.0.slaState', fn ($value) => in_array($value, ['on_track', 'at_risk', 'breached', 'met', 'unknown'], true));
     }
 
     public function test_reply_creates_activity_id(): void
@@ -476,7 +502,11 @@ class SupportTicketApiTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonStructure(['activityId']);
+            ->assertJsonPath('ticket.id', 'TK-1048')
+            ->assertJsonPath('ticket.createdByType', fn ($value) => in_array($value, ['Customer', 'Agent', 'Admin', 'System'], true))
+            ->assertJsonPath('ticket.updatedAt', fn ($value) => is_string($value) && $value !== '')
+            ->assertJsonPath('ticket.slaState', fn ($value) => in_array($value, ['on_track', 'at_risk', 'breached', 'met', 'unknown'], true))
+            ->assertJsonStructure(['activityId', 'ticket' => ['id', 'status', 'priority', 'createdByType', 'updatedAt', 'waitingOn', 'slaState']]);
 
         $detail = $this->getJson('/api/support/tickets/TK-1048');
 
@@ -543,6 +573,8 @@ class SupportTicketApiTest extends TestCase
             ->assertJsonPath('activities.0.id', $response->json('activityId'))
             ->assertJsonPath('activities.0.authorId', (string) $user->id)
             ->assertJsonPath('activities.0.authorName', 'Arka')
+            ->assertJsonPath('activities.0.authorEmail', 'arka@example.com')
+            ->assertJsonPath('activities.0.senderType', 'Agent')
             ->assertJsonPath('activities.0.parentActivityId', 'ACT-9001')
             ->assertJsonPath('activities.0.mentions.0.id', 'user_44')
             ->assertJsonPath('activities.0.mentions.0.display', 'arka')
@@ -832,12 +864,14 @@ class SupportTicketApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('0.id', $activityId)
             ->assertJsonPath('0.type', 'email-send')
+            ->assertJsonPath('0.senderType', 'Agent')
+            ->assertJsonPath('0.recipients.to.0', 'customer@example.com')
             ->assertJsonPath('0.deliveryStatus', 'queued')
             ->assertJsonPath('0.isUnread', true)
             ->assertJsonPath('0.readAt', null)
             ->assertJsonPath('0.attachments.0.id', 'ATT-1001')
             ->assertJsonStructure([
-                ['id', 'type', 'attachments', 'providerMessageId', 'deliveryStatus', 'deliveredAt', 'failedReason', 'isUnread', 'readAt', 'mentionedCurrentUser', 'mentionedNames'],
+                ['id', 'type', 'senderType', 'recipients', 'attachments', 'providerMessageId', 'deliveryStatus', 'deliveredAt', 'failedReason', 'isUnread', 'readAt', 'mentionedCurrentUser', 'mentionedNames'],
             ]);
     }
 
@@ -968,28 +1002,44 @@ class SupportTicketApiTest extends TestCase
     {
         Queue::fake();
 
+        $reply = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'Dispatch recipients test',
+            'isInternalNote' => false,
+        ])->assertOk();
+
+        $activityId = $reply->json('activityId');
+
         $response = $this->postJson('/api/support/tickets/TK-1048/notifications/dispatch', [
-            'eventTypes' => ['reply', 'email', 'forward', 'internal_mention'],
+            'event' => 'reply',
+            'activityId' => $activityId,
             'channels' => ['email', 'in_app'],
         ]);
 
         $response
             ->assertOk()
-            ->assertJsonCount(4, 'queuedJobIds');
+            ->assertJsonCount(1, 'queuedJobIds')
+            ->assertJsonPath('activityId', $activityId)
+            ->assertJsonStructure(['queuedJobIds', 'activityId', 'recipients']);
 
-        $this->assertDatabaseCount('support_ticket_notification_dispatches', 4);
-        Queue::assertPushed(\App\Jobs\DispatchSupportTicketNotificationJob::class, 4);
+        $this->assertDatabaseCount('support_ticket_notification_dispatches', 1);
+        Queue::assertPushed(\App\Jobs\DispatchSupportTicketNotificationJob::class, 1);
     }
 
     public function test_notifications_dispatch_validates_event_type(): void
     {
+        $reply = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'Validation test',
+            'isInternalNote' => false,
+        ])->assertOk();
+
         $response = $this->postJson('/api/support/tickets/TK-1048/notifications/dispatch', [
-            'eventTypes' => ['invalid'],
+            'event' => 'invalid',
+            'activityId' => $reply->json('activityId'),
         ]);
 
         $response
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('eventTypes.0');
+            ->assertJsonValidationErrors('event');
     }
 
     /**
