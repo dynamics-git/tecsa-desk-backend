@@ -31,8 +31,7 @@ class SupportMailSetting extends Model
         return [
             'port' => 'integer',
             'timeout' => 'integer',
-            'is_active' => 'boolean',
-            'password' => 'encrypted',
+            'is_active' => 'boolean'
         ];
     }
 }
