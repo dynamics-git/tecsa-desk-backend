@@ -387,6 +387,118 @@ class SupportTicketApiTest extends TestCase
             ->assertJsonPath('attachments.0.id', 'ATT-2001');
     }
 
+    public function test_it_deletes_attachment_and_cleans_file_and_pivot_rows(): void
+    {
+        Storage::fake('local');
+
+        $user = User::query()->create([
+            'name' => 'Amit',
+            'email' => 'amit@example.com',
+            'password' => 'password',
+        ]);
+
+        SupportPermissionRole::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'user_type' => 'Internal',
+            'role' => 'SupportAdmin',
+            'permissions' => ['support.ticket.view', 'support.ticket.uploadAttachment'],
+            'ticket_visibility' => 'All',
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+
+        SupportUserScope::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'visibility_mode' => 'All',
+            'team_ids' => [],
+            'queue_ids' => [],
+            'customer_ids' => [],
+            'is_active' => true,
+        ]);
+
+        $token = $this->postJson('/api/auth/login', [
+            'email' => 'amit@example.com',
+            'password' => 'password',
+        ])->json('token');
+
+        $headers = ['Authorization' => 'Bearer '.$token, 'Accept' => 'application/json'];
+
+        $this->post('/api/support/attachments/upload', [
+            'file' => UploadedFile::fake()->create('claim-form.pdf', 128, 'application/pdf'),
+            'visibility' => 'internal',
+            'ticketId' => 'TK-1048',
+        ], $headers)->assertCreated();
+
+        $reply = $this->postJson('/api/support/tickets/TK-1048/reply', [
+            'message' => 'Using uploaded attachment for cleanup check.',
+            'isInternalNote' => false,
+            'attachmentIds' => ['ATT-2001'],
+        ], ['Authorization' => 'Bearer '.$token]);
+
+        $reply->assertOk();
+
+        $this->assertDatabaseHas('support_ticket_attachments', ['id' => 'ATT-2001']);
+        $this->assertDatabaseHas('support_ticket_activity_attachments', ['attachment_id' => 'ATT-2001']);
+        Storage::disk('local')->assertExists('support-attachments/ATT-2001-claim-form.pdf');
+
+        $this->deleteJson('/api/support/attachments/ATT-2001', [], ['Authorization' => 'Bearer '.$token])
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $this->assertDatabaseMissing('support_ticket_attachments', ['id' => 'ATT-2001']);
+        $this->assertDatabaseMissing('support_ticket_activity_attachments', ['attachment_id' => 'ATT-2001']);
+        Storage::disk('local')->assertMissing('support-attachments/ATT-2001-claim-form.pdf');
+    }
+
+    public function test_delete_attachment_requires_authentication(): void
+    {
+        $this->deleteJson('/api/support/attachments/ATT-1001')
+            ->assertUnauthorized()
+            ->assertJson(['message' => 'Unauthenticated.']);
+    }
+
+    public function test_delete_attachment_forbidden_without_permission(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Arka',
+            'email' => 'arka@example.com',
+            'password' => 'password',
+        ]);
+
+        SupportPermissionRole::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'user_type' => 'Internal',
+            'role' => 'Agent',
+            'permissions' => ['support.ticket.view'],
+            'ticket_visibility' => 'All',
+            'is_admin' => false,
+            'is_active' => true,
+        ]);
+
+        SupportUserScope::query()->create([
+            'user_id' => (string) $user->id,
+            'user_email' => $user->email,
+            'visibility_mode' => 'All',
+            'team_ids' => [],
+            'queue_ids' => [],
+            'customer_ids' => [],
+            'is_active' => true,
+        ]);
+
+        $token = $this->postJson('/api/auth/login', [
+            'email' => 'arka@example.com',
+            'password' => 'password',
+        ])->json('token');
+
+        $this->deleteJson('/api/support/attachments/ATT-1001', [], ['Authorization' => 'Bearer '.$token])
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('support_ticket_attachments', ['id' => 'ATT-1001']);
+    }
+
     public function test_upload_attachment_validates_file_type(): void
     {
         Storage::fake('local');

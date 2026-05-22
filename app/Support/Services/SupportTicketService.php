@@ -86,6 +86,11 @@ final readonly class SupportTicketService
         return $this->tickets->uploadAttachment($file, $payload, $currentUser);
     }
 
+    public function deleteAttachment(string $attachmentId, ?CurrentUser $currentUser = null): bool
+    {
+        return $this->tickets->deleteAttachment($attachmentId, $currentUser);
+    }
+
     /**
      * @param  array<int, string>  $ticketIds
      * @return array{success: true, updatedCount: int, tickets: array<int, array<string, mixed>>}

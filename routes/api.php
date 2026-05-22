@@ -56,6 +56,7 @@ Route::middleware('api.token')->prefix('setup')->group(function (): void {
 
 Route::get('support/attachments', [SupportAttachmentController::class, 'index']);
 Route::post('support/attachments/upload', [SupportAttachmentController::class, 'upload']);
+Route::delete('support/attachments/{id}', [SupportAttachmentController::class, 'destroy'])->middleware('api.token');
 Route::get('support/reference-data', [SupportReferenceDataController::class, 'index']);
 Route::get('support/teams', [SupportReferenceDataController::class, 'teams']);
 Route::get('support/categories', [SupportReferenceDataController::class, 'categories']);

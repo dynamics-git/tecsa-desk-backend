@@ -13,6 +13,7 @@ use App\Support\Auth\CurrentUser;
 use App\Support\Auth\CurrentUserResolver;
 use App\Support\Services\SupportTicketService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -59,6 +60,41 @@ final class SupportAttachmentController extends Controller
             payload: $request->validated(),
             currentUser: $currentUser,
         ), 201);
+    }
+
+    /**
+     * DELETE /api/support/attachments/{id}
+     *
+     * Deletes an attachment reference, underlying file, and related activity pivot rows.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $attachment = SupportTicketAttachment::query()->find($id);
+
+        if ($attachment === null) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        $ticketId = (string) ($attachment->support_ticket_id ?? '');
+
+        if ($ticketId !== '') {
+            $ticket = SupportTicket::query()->find($ticketId);
+
+            if ($ticket !== null) {
+                if (! Gate::forUser($this->policyUser($currentUser))->allows('uploadAttachment', $ticket)) {
+                    return response()->json(['message' => 'Forbidden.'], 403);
+                }
+            }
+        }
+
+        $deleted = $this->supportTickets->deleteAttachment($id, $currentUser);
+
+        if (! $deleted) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        return response()->json(['success' => true]);
     }
 
     public function preview(string $id): StreamedResponse|JsonResponse

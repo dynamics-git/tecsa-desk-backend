@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 final class EloquentSupportTicketRepository implements SupportTicketRepositoryInterface
@@ -181,6 +182,32 @@ final class EloquentSupportTicketRepository implements SupportTicketRepositoryIn
             }
 
             return $this->mapAttachment($attachment->load('ticket'));
+        });
+    }
+
+    public function deleteAttachment(string $attachmentId, ?CurrentUser $currentUser = null): bool
+    {
+        return DB::transaction(function () use ($attachmentId): bool {
+            $attachment = SupportTicketAttachment::query()->lockForUpdate()->find($attachmentId);
+
+            if ($attachment === null) {
+                return false;
+            }
+
+            $disk = (string) ($attachment->disk ?? config('filesystems.default', 'local'));
+            $path = (string) ($attachment->path ?? '');
+
+            if ($path !== '' && Storage::disk($disk)->exists($path)) {
+                Storage::disk($disk)->delete($path);
+            }
+
+            DB::table('support_ticket_activity_attachments')
+                ->where('attachment_id', $attachmentId)
+                ->delete();
+
+            $attachment->delete();
+
+            return true;
         });
     }
 

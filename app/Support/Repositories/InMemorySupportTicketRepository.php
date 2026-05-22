@@ -117,6 +117,11 @@ final class InMemorySupportTicketRepository implements SupportTicketRepositoryIn
         ];
     }
 
+    public function deleteAttachment(string $attachmentId, ?CurrentUser $currentUser = null): bool
+    {
+        return true;
+    }
+
     public function assign(array $ticketIds, string $agent, ?CurrentUser $currentUser = null): int
     {
         $this->tickets();

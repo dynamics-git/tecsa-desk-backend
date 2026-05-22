@@ -47,6 +47,8 @@ interface SupportTicketRepositoryInterface
      */
     public function uploadAttachment(UploadedFile $file, array $payload, ?CurrentUser $currentUser = null): array;
 
+    public function deleteAttachment(string $attachmentId, ?CurrentUser $currentUser = null): bool;
+
     /**
      * @param  array<int, string>  $ticketIds
      */
