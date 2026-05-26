@@ -2,6 +2,8 @@ name: Deploy Laravel Backend to FTP
 
 on:
   push:
+    branches:
+      - create-email-test
     paths-ignore:
       - "tecsa-desk/**"
       - "docs/angular/**"
@@ -10,7 +12,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: laravel-ftp-deploy
+  group: laravel-ftp-deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,8 +29,17 @@ jobs:
           php-version: "8.2"
           tools: composer:v2
 
+      - name: Validate Composer files
+        run: composer validate --no-check-publish --no-interaction
+
       - name: Install production dependencies
         run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+      - name: Verify FTP secrets are set
+        run: |
+          test -n "${{ secrets.FTP_SERVER }}" || (echo "FTP_SERVER is not set" && exit 1)
+          test -n "${{ secrets.FTP_USERNAME }}" || (echo "FTP_USERNAME is not set" && exit 1)
+          test -n "${{ secrets.FTP_PASSWORD }}" || (echo "FTP_PASSWORD is not set" && exit 1)
 
       - name: Deploy to FTP server
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -37,7 +48,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftp
-          port: ${{ secrets.FTP_PORT || 21 }}
+          port: 21
           server-dir: /public_html/tecsadesk/
           local-dir: ./
           dangerous-clean-slate: false
