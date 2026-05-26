@@ -253,6 +253,27 @@ final class SupportTicketController extends Controller
             : response()->json($result);
     }
 
+    public function notificationRecipients(Request $request, string $id): JsonResponse
+    {
+        $record = SupportTicket::query()->find($id);
+
+        if ($record === null) {
+            return ApiErrorResponse::notFound($request, 'Ticket not found.');
+        }
+
+        $currentUser = $this->currentUserResolver->fromRequestOrFallback($request);
+        Gate::forUser($this->policyUser($currentUser))->authorize('view', $record);
+
+        $result = $this->supportConversation->notificationRecipients(
+            ticketId: $id,
+            activityId: $request->query('activityId') !== null ? (string) $request->query('activityId') : null,
+        );
+
+        return $result === null
+            ? ApiErrorResponse::notFound($request, 'Ticket not found.')
+            : response()->json($result);
+    }
+
     /**
      * POST /api/support/tickets/bulk/assign
      *
