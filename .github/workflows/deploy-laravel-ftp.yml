@@ -1,0 +1,69 @@
+name: Deploy Laravel Backend to FTP
+
+on:
+  push:
+    branches:
+    - create-email-test
+      - main
+      - master
+    paths-ignore:
+      - "tecsa-desk/**"
+      - "docs/angular/**"
+      - "docs/postman/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: laravel-ftp-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer:v2
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+      - name: Deploy to FTP server
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftp
+          port: ${{ secrets.FTP_PORT || 21 }}
+          server-dir: /public_html/tecsadesk/
+          local-dir: ./
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git/**
+            **/.git*
+            **/.github/**
+            **/node_modules/**
+            tecsa-desk/**
+            tests/**
+            docs/**
+            storage/logs/**
+            storage/framework/cache/data/**
+            storage/framework/sessions/**
+            storage/framework/views/**
+            .env
+            .env.*
+            !.env.example
+            phpunit.xml
+            route_list_output.txt
+            package.json
+            package-lock.json
+            vite.config.js
+            composer.zip
+            .phpunit.result.cache
