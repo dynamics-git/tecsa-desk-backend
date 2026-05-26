@@ -2,10 +2,6 @@ name: Deploy Laravel Backend to FTP
 
 on:
   push:
-    branches:
-    - create-email-test
-      - main
-      - master
     paths-ignore:
       - "tecsa-desk/**"
       - "docs/angular/**"
